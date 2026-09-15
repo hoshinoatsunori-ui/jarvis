@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis 信号チェーン</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 14px system-ui, sans-serif; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root {
+  --paper:      #EEF1F2;
+  --surface:    #FFFFFF;
+  --surface-2:  #E4E9EA;
+  --ink:        #0F1618;
+  --ink-2:      #33454A;
+  --muted:      #5E7074;
+  --rule:       #CBD5D7;
+  --rule-soft:  #DDE4E5;
+  --accent:     #0E7C86;
+  --accent-ink: #085A62;
+  --accent-bg:  #D8EAEC;
+  --ok:         #2F7D4F;
+  --ok-bg:      #DCEBE1;
+  --warn:       #A8681A;
+  --warn-bg:    #F2E6D3;
+  --off:        #7C888C;
+  --off-bg:     #E0E4E5;
+
+  --f-display: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  --f-body:    "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --rail: 172px;
+  --gap: 28px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #0C1214;
+    --surface:    #141C1F;
+    --surface-2:  #1C262A;
+    --ink:        #E4EDEF;
+    --ink-2:      #B6C6CA;
+    --muted:      #8A9BA0;
+    --rule:       #2A383C;
+    --rule-soft:  #202C30;
+    --accent:     #4BBFC9;
+    --accent-ink: #7FD6DD;
+    --accent-bg:  #0E383D;
+    --ok:         #6BC28C;
+    --ok-bg:      #123024;
+    --warn:       #D9A45C;
+    --warn-bg:    #33260F;
+    --off:        #8A9498;
+    --off-bg:     #1E282B;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #0C1214;
+  --surface:    #141C1F;
+  --surface-2:  #1C262A;
+  --ink:        #E4EDEF;
+  --ink-2:      #B6C6CA;
+  --muted:      #8A9BA0;
+  --rule:       #2A383C;
+  --rule-soft:  #202C30;
+  --accent:     #4BBFC9;
+  --accent-ink: #7FD6DD;
+  --accent-bg:  #0E383D;
+  --ok:         #6BC28C;
+  --ok-bg:      #123024;
+  --warn:       #D9A45C;
+  --warn-bg:    #33260F;
+  --off:        #8A9498;
+  --off-bg:     #1E282B;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 15px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 0 72px;
+}
+
+/* ---------- 見出し・本文 ---------- */
+
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+p { margin: 0 0 1em; }
+p:last-child { margin-bottom: 0; }
+
+strong { font-weight: 700; color: var(--ink); }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.875em;
+  background: var(--surface-2);
+  padding: 0.12em 0.4em;
+  border-radius: 2px;
+  color: var(--ink-2);
+}
+
+/* ---------- ヘッダ ---------- */
+
+.masthead {
+  border-bottom: 2px solid var(--ink);
+  padding-block: 44px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.masthead h1 {
+  font-size: clamp(38px, 7vw, 62px);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.masthead .lede {
+  color: var(--muted);
+  font-size: 15px;
+  max-width: 34em;
+  margin-top: 12px;
+  line-height: 1.7;
+}
+
+.spec-stamp {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  line-height: 2;
+  color: var(--muted);
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+.spec-stamp b { color: var(--ink); font-weight: 600; }
+
+/* ---------- 状態ストリップ ---------- */
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin-top: 28px;
+}
+
+.status-cell { background: var(--surface); padding: 16px 18px; }
+
+.status-cell .tag {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+.tag.ok  { background: var(--ok-bg);  color: var(--ok); }
+.tag.wrn { background: var(--warn-bg); color: var(--warn); }
+.tag.off { background: var(--off-bg); color: var(--off); }
+
+.status-cell p {
+  margin: 9px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* ---------- 節（レール付き） ---------- */
+
+section { padding-block: 46px 0; }
+
+.sec-head {
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+  gap: var(--gap);
+  align-items: baseline;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+  margin-bottom: 22px;
+}
+
+.sec-head h2 {
+  font-size: clamp(21px, 3vw, 27px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.body-grid {
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+  gap: var(--gap);
+  align-items: start;
+}
+
+/* 計測レール: 欄外の実測値・参照 */
+.rail {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rail dl { margin: 0; display: grid; gap: 2px; }
+.rail dt {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.rail dd { margin: 0; color: var(--ink-2); }
+.rail .ref { color: var(--muted); word-break: break-all; }
+
+.prose { max-width: 66ch; }
+.prose > * + * { margin-top: 1em; }
+
+@media (max-width: 720px) {
+  .sec-head, .body-grid { grid-template-columns: 1fr; gap: 14px; }
+  .rail { flex-direction: row; flex-wrap: wrap; gap: 18px; }
+  .rail dl { min-width: 120px; }
+}
+
+/* ---------- 図 ---------- */
+
+.figure {
+  margin-top: 26px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+.fig-scroll { overflow-x: auto; }
+.figure svg { display: block; }
+.fig-cap {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--rule-soft);
+  padding: 9px 14px;
+  line-height: 1.6;
+}
+
+/* ---------- 表 ---------- */
+
+.table-scroll { overflow-x: auto; margin-top: 22px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  min-width: 540px;
+}
+caption {
+  text-align: left;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding-bottom: 9px;
+}
+th, td {
+  text-align: left;
+  padding: 10px 14px 10px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+  line-height: 1.6;
+}
+thead th {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 8px;
+}
+tbody th { font-weight: 500; color: var(--ink); white-space: nowrap; }
+td.num, td .mono, th .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+tr .def {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent-bg);
+  background: var(--accent-bg);
+  padding: 1px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+/* ---------- ターン処理のステップ ---------- */
+
+.steps { margin-top: 24px; display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.step {
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 16px;
+  padding: 14px 16px;
+  align-items: start;
+}
+.step .n {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+.step h3 { font-size: 15px; font-weight: 500; font-family: var(--f-body); }
+.step p { margin: 4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.7; }
+.step .where { font-family: var(--f-mono); font-size: 11px; color: var(--accent-ink); }
+
+@media (max-width: 480px) {
+  .step { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* ---------- 判断カード（3つだけ、意図的に使う） ---------- */
+
+.calls { margin-top: 24px; display: grid; gap: 22px; }
+.call { border-left: 3px solid var(--accent); padding-left: 18px; }
+.call h3 { font-size: 16px; font-weight: 500; font-family: var(--f-body); margin-bottom: 5px; }
+.call p { font-size: 13.5px; color: var(--muted); line-height: 1.75; }
+.call .cost {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  color: var(--warn);
+  margin-top: 7px;
+  display: block;
+}
+
+/* ---------- コードブロック ---------- */
+
+pre {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 20px 0 0;
+  color: var(--ink-2);
+  tab-size: 2;
+}
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent); }
+
+/* ---------- 注記 ---------- */
+
+.note {
+  margin-top: 22px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--warn);
+  background: var(--surface);
+  padding: 14px 18px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.note b { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn); display: block; margin-bottom: 4px; }
+
+/* --- SVG: プレゼンテーション属性の var() はブラウザ差が出るのでクラスで当てる --- */
+svg { font-family: var(--f-body); }
+svg .mono { font-family: var(--f-mono); }
+svg .f-ink       { fill: var(--ink); }
+svg .f-ink2      { fill: var(--ink-2); }
+svg .f-muted     { fill: var(--muted); }
+svg .f-accent    { fill: var(--accent); }
+svg .f-accentink { fill: var(--accent-ink); }
+svg .f-surface   { fill: var(--surface); }
+svg .f-surface2  { fill: var(--surface-2); }
+svg .f-accentbg  { fill: var(--accent-bg); }
+svg .s-rule      { stroke: var(--rule); }
+svg .s-accent    { stroke: var(--accent); }
+svg .s-muted     { stroke: var(--muted); }
+svg line.s-accent, svg line.s-muted, svg path.s-accent, svg path.s-muted { fill: none; }
+svg marker path { fill: var(--muted); }
+svg #ar2 path { fill: var(--accent); }
+
+footer {
+  margin-top: 56px;
+  border-top: 2px solid var(--ink);
+  padding-top: 16px;
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">Cascade voice assistant / Phase 0</div>
+      <h1>Jarvis</h1>
+      <p class="lede">常時待受の音声アシスタント。ウェイクワードから発話までを6つの段に分け、どの段も設定1行で差し替えられるように組んである。</p>
+    </div>
+    <div class="spec-stamp">
+      内部形式 &nbsp;<b>16 bit / 16 kHz / mono PCM</b><br>
+      実装 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Python 3.10+ / 2,223 行</b><br>
+      テスト &nbsp;&nbsp;&nbsp;<b>81 件 passed</b><br>
+      既定 LLM &nbsp;<b>claude-opus-5</b>
+    </div>
+  </header>
+
+  <div class="status-strip">
+    <div class="status-cell">
+      <span class="tag ok">実装・テスト済み</span>
+      <p>パイプライン全段、ツール実行、MCP 連携、設定系、CLI 8 コマンド。ハードウェアに依存しないテストで担保。</p>
+    </div>
+    <div class="status-cell">
+      <span class="tag wrn">未検証</span>
+      <p>マイクとスピーカーを繋いだ実機での通し動作。開発環境に音声デバイスが無いため確認していない。</p>
+    </div>
+    <div class="status-cell">
+      <span class="tag off">未実装</span>
+      <p>割り込み（barge-in）、話者識別、マルチルーム、API 障害時のローカル LLM フォールバック。</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 信号の流れ ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">01 / Signal chain</div>
+      <h2>信号の流れ</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>フレーム長</dt>
+          <dd>30 ms = 480 samples</dd>
+        </dl>
+        <dl>
+          <dt>ウェイク単位</dt>
+          <dd>80 ms = 1280 samples<br><span class="ref">openWakeWord</span></dd>
+        </dl>
+        <dl>
+          <dt>プリロール</dt>
+          <dd>300 ms</dd>
+        </dl>
+        <dl>
+          <dt>実装</dt>
+          <dd class="ref">pipeline.py<br>VoiceLoop.run_on_frames</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>音声は入口から出口まで <strong>16bit 符号付きリトルエンディアン・モノラル PCM</strong> のまま流れる。Whisper 系 STT もウェイクワード検出器も 16 kHz を前提にしているので、段の間で形式変換が起きない。</p>
+        <p>各段の間を何が流れるかが、そのまま差し替えの境界になっている。たとえば STT を faster-whisper から OpenAI に替えても、前後の段は「発話音声が来て、テキストを返す」以上のことを知らない。</p>
+      </div>
+    </div>
+
+    <div class="figure">
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1000 230" width="1000" height="230" role="img" aria-label="マイクからスピーカーまでの6段のパイプライン図">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,1 L9,5 L0,9 z" class="f-muted"></path>
+            </marker>
+          </defs>
+
+          <!-- 段 -->
+          <g >
+            <!-- 1 wake -->
+            <rect x="16" y="66" width="128" height="62" class="f-surface2 s-rule" ></rect>
+            <text x="80" y="92" text-anchor="middle" font-size="14" font-weight="700" class="f-ink">ウェイクワード</text>
+            <text x="80" y="112" text-anchor="middle" font-size="11" class="mono f-muted" >常時オン</text>
+
+            <!-- 2 vad -->
+            <rect x="180" y="66" width="106" height="62" class="f-surface2 s-rule" ></rect>
+            <text x="233" y="92" text-anchor="middle" font-size="14" font-weight="700" class="f-ink">VAD</text>
+            <text x="233" y="112" text-anchor="middle" font-size="11" class="mono f-muted" >発話の切出</text>
+
+            <!-- 3 stt -->
+            <rect x="322" y="66" width="106" height="62" class="f-surface2 s-rule" ></rect>
+            <text x="375" y="92" text-anchor="middle" font-size="14" font-weight="700" class="f-ink">STT</text>
+            <text x="375" y="112" text-anchor="middle" font-size="11" class="mono f-muted" >音声→文字</text>
+
+            <!-- 4 llm -->
+            <rect x="464" y="56" width="146" height="82" class="f-accentbg s-accent" ></rect>
+            <text x="537" y="88" text-anchor="middle" font-size="14" font-weight="700" class="f-accentink">LLM</text>
+            <text x="537" y="107" text-anchor="middle" font-size="11" class="mono f-accentink" >tool use</text>
+            <text x="537" y="124" text-anchor="middle" font-size="11" class="mono f-accentink" >ストリーミング</text>
+
+            <!-- 5 split -->
+            <rect x="646" y="66" width="106" height="62" class="f-surface2 s-rule" ></rect>
+            <text x="699" y="92" text-anchor="middle" font-size="14" font-weight="700" class="f-ink">文に切る</text>
+            <text x="699" y="112" text-anchor="middle" font-size="11" class="mono f-muted" >逐次</text>
+
+            <!-- 6 tts -->
+            <rect x="788" y="66" width="106" height="62" class="f-surface2 s-rule" ></rect>
+            <text x="841" y="92" text-anchor="middle" font-size="14" font-weight="700" class="f-ink">TTS</text>
+            <text x="841" y="112" text-anchor="middle" font-size="11" class="mono f-muted" >文字→音声</text>
+          </g>
+
+          <!-- 端点 -->
+          <text x="16" y="42" font-size="11.5" class="mono f-accent" >マイク</text>
+          <text x="984" y="42" text-anchor="end" font-size="11.5" class="mono f-accent" >スピーカー</text>
+
+          <!-- 矢印と、その上を流れるもの -->
+          <g class="s-muted"  stroke-width="1.2" marker-end="url(#ar)">
+            <line x1="144" y1="97" x2="174" y2="97"></line>
+            <line x1="286" y1="97" x2="316" y2="97"></line>
+            <line x1="428" y1="97" x2="458" y2="97"></line>
+            <line x1="610" y1="97" x2="640" y2="97"></line>
+            <line x1="752" y1="97" x2="782" y2="97"></line>
+          </g>
+          <g font-size="10.5" class="mono f-muted"  text-anchor="middle">
+            <text x="159" y="150">検出</text>
+            <text x="301" y="150">発話音声</text>
+            <text x="443" y="150">テキスト</text>
+            <text x="625" y="150">トークン列</text>
+            <text x="767" y="150">1 文</text>
+          </g>
+
+          <!-- 下段: PCM が通る区間 -->
+          <line class="s-accent" x1="16" y1="182" x2="428" y2="182"  stroke-width="1.2" stroke-dasharray="3 3"></line>
+          <text x="16" y="202" font-size="10.5" class="mono f-accent" >16 kHz PCM のまま通る区間</text>
+          <line class="s-accent" x1="788" y1="182" x2="984" y2="182"  stroke-width="1.2" stroke-dasharray="3 3"></line>
+          <text x="984" y="202" text-anchor="end" font-size="10.5" class="mono f-accent" >WAV</text>
+        </svg>
+      </div>
+      <div class="fig-cap">矢印の上の語が、その境界を越えるデータ。この粒度が各段の差し替え可能な単位になっている。</div>
+    </div>
+  </section>
+
+  <!-- ══════════════ なぜカスケードか ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">02 / Rationale</div>
+      <h2>なぜカスケードなのか</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>選択</dt>
+          <dd>カスケード</dd>
+        </dl>
+        <dl>
+          <dt>対抗案</dt>
+          <dd>S2S<br><span class="ref">Realtime / Live API</span></dd>
+        </dl>
+        <dl>
+          <dt>代償</dt>
+          <dd>barge-in 自前<br>合算レイテンシ</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>音声から音声を直接生成する S2S ではなくカスケードを採ったのは、<strong>日本語の STT と TTS をローカルに置いたまま、LLM だけクラウドにする</strong>構成が取れるため。音声が家庭外に出るのはウェイクワード検出後だけ、という設計にできる。</p>
+        <p>代わりに割り込み（barge-in）は自前で実装することになる。現時点では未実装。</p>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <caption>S2S との比較</caption>
+        <thead>
+          <tr><th>観点</th><th>S2S（Realtime / Live API）</th><th>カスケード（本実装）</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>レイテンシ</th><td>最小。中間ハンドオフが無い</td><td>各段の合算。ストリーミングで短縮</td></tr>
+          <tr><th>割り込み</th><td>ネイティブ対応</td><td>自前実装が要る <span class="def">未実装</span></td></tr>
+          <tr><th>カスタマイズ性</th><td>低い。LLM も音声もベンダー固定</td><td>高い。各段を差し替え自由</td></tr>
+          <tr><th>LLM 切替</th><td>不可（音声パスに固定）</td><td>自由</td></tr>
+          <tr><th>音声の所在</th><td>常にベンダーへ送る</td><td>ローカル完結にできる</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>この選択が効かなくなる条件</b>
+      「S2S の手軽さ」を取るなら、この実装は土台にならない。<code>pipeline.py</code> を Realtime API のセッション管理に置き換えることになり、段の抽象はほぼ残らない。
+    </div>
+  </section>
+
+  <!-- ══════════════ 1ターンの処理 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">03 / Turn</div>
+      <h2>1 ターンで起きること</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>無音で確定</dt>
+          <dd>800 ms</dd>
+        </dl>
+        <dl>
+          <dt>発話待ち上限</dt>
+          <dd>6.0 s</dd>
+        </dl>
+        <dl>
+          <dt>1発話の上限</dt>
+          <dd>20.0 s</dd>
+        </dl>
+        <dl>
+          <dt>ツール往復</dt>
+          <dd>最大 6 回</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>待受から発話までの一巡。<code>VoiceLoop</code> が 1〜4 を、<code>Conversation</code> が 5〜7 を持つ。テキスト対話（<code>jarvis chat</code>）は 5 から入るだけで、後半は音声と同じ経路を通る。</p>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="n">01</div>
+        <div>
+          <h3>フレームを溜めてウェイクワードに食わせる</h3>
+          <p>マイクは 30 ms 単位で読むが、検出器が要求する単位（openWakeWord なら 80 ms）は違う。間にバッファを挟んで再分割する。同時に直前 300 ms を保持し続ける。</p>
+          <span class="where">pipeline.py — run_on_frames</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">02</div>
+        <div>
+          <h3>検出したら、保持していた 300 ms を先頭に録音を始める</h3>
+          <p>検出の瞬間から録り始めると語頭が欠ける。プリロールを足すことで「ジャービス、<em>あ</em>したの天気」の「あ」が残る。</p>
+          <span class="where">pipeline.py — _record</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">03</div>
+        <div>
+          <h3>VAD で発話の終わりを見つける</h3>
+          <p>声が始まるのを待ち、800 ms の無音が続いたら切る。声が来ないまま 6 秒経ったら諦めて待受に戻る。20 秒を超えたら打ち切って STT に回す。</p>
+          <span class="where">pipeline.py — _record</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">04</div>
+        <div>
+          <h3>STT にかける。空なら何もしない</h3>
+          <p>物音でウェイクワードが誤検出されると空文字が返る。ここで止めることで、LLM に無意味な呼び出しが飛ばない。</p>
+          <span class="where">pipeline.py — _handle</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">05</div>
+        <div>
+          <h3>LLM にストリーミングで投げ、ツール呼び出しを回す</h3>
+          <p><code>tool_use</code> が返ったらツールを実行し、結果を 1 つのユーザーメッセージにまとめて返して続行。並列呼び出しの結果を複数メッセージに分けると、モデルが並列呼び出しをしなくなるため必ずまとめる。</p>
+          <span class="where">llm.py — AnthropicAgent.respond</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">06</div>
+        <div>
+          <h3>届いたトークンを文に切る</h3>
+          <p>句点・感嘆・疑問・改行で切る。60 文字を超えても文末が来なければ読点で切る。8 文字未満の断片は次とまとめる（「はい。」だけで合成を呼ぶと、かえって発話が細切れになる）。</p>
+          <span class="where">textutil.py — iter_sentences</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">07</div>
+        <div>
+          <h3>1 文できるたびに合成して再生する</h3>
+          <p>応答が出揃うのを待たない。最初の音が出るまでの時間は、全文の生成時間ではなく最初の 1 文の生成時間で決まる。</p>
+          <span class="where">pipeline.py — Conversation.handle</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 各段の選択肢 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">04 / Interchangeable stages</div>
+      <h2>各段の選択肢</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>対応表</dt>
+          <dd class="ref">factory.py<br>WAKE_ENGINES ほか</dd>
+        </dl>
+        <dl>
+          <dt>抽象</dt>
+          <dd class="ref">interfaces.py<br>5 つの ABC</dd>
+        </dl>
+        <dl>
+          <dt>差し替え</dt>
+          <dd>engine の 1 行</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>「エンジン名 → 実装」の対応表は <code>factory.py</code> の 1 箇所だけ。段を足すときはここに 1 行足す。import は呼ばれたときに初めて行うので、使わないエンジンの重い依存（faster-whisper、onnxruntime）が起動を遅らせることはない。</p>
+        <p>依存が足りないときは <code>EngineUnavailable</code> が「何が無いか」と「何を入れれば動くか」を持って上がってくる。<code>jarvis doctor</code> はそれを拾って一覧にする。</p>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <caption>段ごとの実装（<span class="mono">太字</span> が既定）</caption>
+        <thead>
+          <tr><th>段</th><th>実装</th><th>備考</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>wake</th>
+            <td><span class="mono">manual</span> / <span ><b>openwakeword</b></span> / <span >porcupine</span></td>
+            <td><span class="mono">manual</span> は Enter で起動。マイク未整備でも先へ進める</td>
+          </tr>
+          <tr>
+            <th>vad</th>
+            <td><span class="mono"><b>energy</b></span> / <span >silero</span></td>
+            <td><span class="mono">energy</span> は依存ゼロ。しきい値は <code>jarvis level</code> で実測する</td>
+          </tr>
+          <tr>
+            <th>stt</th>
+            <td><span class="mono"><b>faster_whisper</b></span> / <span >openai</span> / <span >none</span></td>
+            <td>既定モデルは kotoba-whisper-v2.0（日本語特化の faster-whisper 変換版）</td>
+          </tr>
+          <tr>
+            <th>llm</th>
+            <td><span class="mono"><b>anthropic</b></span> / <span >echo</span></td>
+            <td><span class="mono">echo</span> は API を叩かず配線だけ確認する用</td>
+          </tr>
+          <tr>
+            <th>tts</th>
+            <td><span class="mono"><b>voicevox</b></span> / <span >aivisspeech</span> / <span >openai</span> / <span >system</span> / <span >none</span></td>
+            <td>AivisSpeech は VOICEVOX 互換 API。既定ポートだけ差し替わる</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>エンジン名の落とし穴</b>
+      「何もしないエンジン」の名前は <code>none</code>。YAML では <code>null</code> が文字列ではなく null リテラルとして読まれるため、エンジン名には使えない。誤って書いた場合はその旨を説明するエラーを返す。
+    </div>
+  </section>
+
+  <!-- ══════════════ ツールとMCP ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">05 / Tools</div>
+      <h2>ツールと MCP</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>組み込み</dt>
+          <dd>4 個</dd>
+        </dl>
+        <dl>
+          <dt>MCP 名前空間</dt>
+          <dd>&lt;server&gt;__&lt;tool&gt;</dd>
+        </dl>
+        <dl>
+          <dt>接続保持</dt>
+          <dd class="ref">専用スレッド<br>asyncio ループ 1 本</dd>
+        </dl>
+        <dl>
+          <dt>実装</dt>
+          <dd class="ref">mcp_bridge.py</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>LLM が呼べるツールは 2 種類ある。組み込み（<code>get_current_time</code> / <code>remember</code> / <code>recall</code> / <code>forget</code>）と、設定に書いた MCP サーバのツール。どちらも同じ <code>ToolSpec</code> に変換されるので、<strong>LLM 側から見れば区別がない</strong>。</p>
+        <p>ツールの失敗で会話は落ちない。例外は捕まえて <code>is_error</code> 付きの結果としてモデルに返し、判断させる。</p>
+        <p>MCP の Python SDK は asyncio 前提だが、パイプライン本体は同期で回っている。専用スレッドでイベントループを 1 本持ち、各サーバの接続は 1 つの常駐タスクが開いたまま保持する。async context manager は入ったタスクと同じタスクで抜ける必要があるため、接続と切断を別々の呼び出しに分けられない。</p>
+      </div>
+    </div>
+
+    <div class="figure">
+      <div class="fig-scroll">
+        <svg viewBox="0 0 860 236" width="860" height="236" role="img" aria-label="同期パイプラインとMCP専用スレッドの関係図">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,1 L9,5 L0,9 z" class="f-accent"></path>
+            </marker>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,1 L9,5 L0,9 z" class="f-muted"></path>
+            </marker>
+          </defs>
+
+          <!-- メインスレッド -->
+          <rect x="16" y="40" width="250" height="150" class="f-surface2 s-rule" ></rect>
+          <text x="28" y="30" font-size="11" class="mono f-muted" >メインスレッド（同期）</text>
+          <rect x="38" y="66" width="206" height="42" class="f-surface s-rule" ></rect>
+          <text x="141" y="92" text-anchor="middle" font-size="13" font-weight="700" class="f-ink">パイプライン</text>
+          <rect x="38" y="126" width="206" height="42" class="f-accentbg s-accent" ></rect>
+          <text x="141" y="146" text-anchor="middle" font-size="12.5" font-weight="700" class="f-accentink">ToolRegistry</text>
+          <text x="141" y="161" text-anchor="middle" font-size="10.5" class="mono f-accentink" >組み込み 4 + MCP n</text>
+
+          <!-- MCPスレッド -->
+          <rect x="386" y="40" width="250" height="150" class="f-surface2 s-rule" ></rect>
+          <text x="398" y="30" font-size="11" class="mono f-muted" >jarvis-mcp スレッド（asyncio）</text>
+          <rect x="408" y="66" width="206" height="42" class="f-surface s-rule" ></rect>
+          <text x="511" y="86" text-anchor="middle" font-size="12.5" font-weight="700" class="f-ink">常駐タスク</text>
+          <text x="511" y="101" text-anchor="middle" font-size="10.5" class="mono f-muted" >接続を開いたまま保持</text>
+          <rect x="408" y="126" width="206" height="42" class="f-surface s-rule" ></rect>
+          <text x="511" y="152" text-anchor="middle" font-size="12.5" font-weight="700" class="f-ink">ClientSession</text>
+
+          <!-- 子プロセス -->
+          <rect x="700" y="105" width="144" height="62" class="f-surface s-rule"  stroke-dasharray="4 3"></rect>
+          <text x="772" y="131" text-anchor="middle" font-size="12.5" font-weight="700" class="f-ink">MCP サーバ</text>
+          <text x="772" y="150" text-anchor="middle" font-size="10.5" class="mono f-muted" >stdio 子プロセス</text>
+
+          <!-- 往復 -->
+          <path class="s-accent" d="M248 138 L380 138"  stroke-width="1.3" fill="none" marker-end="url(#ar2)"></path>
+          <text x="314" y="130" text-anchor="middle" font-size="10" class="mono f-accent" >run_coroutine_</text>
+          <text x="314" y="142" text-anchor="middle" font-size="10" class="mono f-accent" >threadsafe</text>
+
+          <path class="s-muted" d="M380 172 L248 172"  stroke-width="1.3" fill="none" marker-end="url(#ar3)"></path>
+          <text x="314" y="188" text-anchor="middle" font-size="10" class="mono f-muted" >future.result()</text>
+
+          <line class="s-muted" x1="614" y1="147" x2="696" y2="136"  stroke-width="1.2" marker-end="url(#ar3)"></line>
+        </svg>
+      </div>
+      <div class="fig-cap">同期側は Future を待つだけ。接続の寿命は常駐タスクが持つので、呼び出しごとの接続確立は起きない。</div>
+    </div>
+
+<pre><span class="c"># config.yaml — MCP サーバを足すと、その場でツールが増える</span>
+<span class="k">tools</span>:
+  <span class="k">builtin</span>: true
+  <span class="k">mcp_servers</span>:
+    <span class="k">filesystem</span>:
+      <span class="k">command</span>: npx
+      <span class="k c">args</span>: [<span >"-y"</span>, <span >"@modelcontextprotocol/server-filesystem"</span>, <span >"/home/me/notes"</span>]</pre>
+  </section>
+
+  <!-- ══════════════ レイテンシ設計 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">06 / Latency</div>
+      <h2>レイテンシのための 3 つの判断</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>効かせる対象</dt>
+          <dd>最初の音が<br>出るまでの時間</dd>
+        </dl>
+        <dl>
+          <dt>effort</dt>
+          <dd>low</dd>
+        </dl>
+        <dl>
+          <dt>max_tokens</dt>
+          <dd>2048</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>体感を決めるのは応答全体の長さではなく、<strong>最初の音が出るまで</strong>。そこだけを狙って 3 つ決めている。</p>
+      </div>
+    </div>
+
+    <div class="calls">
+      <div class="call">
+        <h3>文単位で TTS に渡す</h3>
+        <p>応答が出揃うのを待たず、1 文できた時点で合成を始める。文末が遠いときは 60 文字で見切って読点で切る。</p>
+      </div>
+      <div class="call">
+        <h3>effort を下げる</h3>
+        <p>雑談や家電操作に深い推論は要らない。思考の深さを浅くして応答を早める。</p>
+      </div>
+      <div class="call">
+        <h3>thinking は無効化しない</h3>
+        <p>Claude Opus 5 で thinking を無効にすると、ツール呼び出しを <code>tool_use</code> ブロックではなく本文テキストに書いてしまう既知の失敗モードがある。呼び出しが実行されないまま会話が進むため、エージェントとしては致命的。速くしたいなら effort を下げる。</p>
+        <span class="cost">この判断のぶんだけ、応答開始は遅くなる</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 記憶 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">07 / Memory</div>
+      <h2>記憶と設定</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>事実の上限</dt>
+          <dd>200 件</dd>
+        </dl>
+        <dl>
+          <dt>保存先</dt>
+          <dd class="ref">state/memory.json<br>state/conversation.jsonl</dd>
+        </dl>
+        <dl>
+          <dt>履歴</dt>
+          <dd>直近 12 往復</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p><code>remember</code> で保存した事実は JSON に残り、次回以降システムプロンプトに差し込まれる。システムプロンプトは<strong>不変のペルソナが先、毎回変わりうる記憶が後</strong>という順で組む。プロンプトキャッシュは前方一致なので、この順序を入れ替えると効かなくなる。</p>
+        <p>件数が増えて効かなくなったら、<code>Memory.as_prompt_block()</code> をベクトル検索に差し替える。それが今のところの拡張点。</p>
+        <p>会話履歴を切り詰めるときは、ツール結果が孤立しない位置で切る。<code>tool_result</code> だけが先頭に残ると API が受け付けない。</p>
+        <p>設定は YAML 1 枚。各段は <code>engine</code> と <code>options</code> という同じ形をしていて、差し替えるときに触るのは <code>engine</code> の 1 行だけ。値の中の <code>${VAR}</code> は環境変数に展開される（<code>${VAR:-既定値}</code> も書ける）。API キーを YAML に直接書かないための仕組み。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ コード地図 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">08 / Map</div>
+      <h2>コードの地図</h2>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <caption>src/jarvis — 2,223 行</caption>
+        <thead>
+          <tr><th>モジュール</th><th class="num">行</th><th>持ちもの</th></tr>
+        </thead>
+        <tbody>
+          <tr><th><span class="mono num">interfaces.py</span></th><td >81</td><td>5 つの抽象。WakeWordEngine / VAD / SpeechToText / TextToSpeech / Agent</td></tr>
+          <tr><th><span class="mono num">factory.py</span></th><td >141</td><td>「エンジン名 → 実装」の唯一の対応表。遅延 import と設定項目の検証</td></tr>
+          <tr><th><span class="mono num">pipeline.py</span></th><td >155</td><td>VoiceLoop（待受〜録音）と Conversation（LLM〜発話）</td></tr>
+          <tr><th><span class="mono num">llm.py</span></th><td >191</td><td>Claude のツールループ、履歴の切り詰め、拒否時の扱い</td></tr>
+          <tr><th><span class="mono num">mcp_bridge.py</span></th><td >189</td><td>MCP サーバ → ToolSpec。専用スレッドと接続の保持</td></tr>
+          <tr><th><span class="mono num">audio.py</span></th><td >223</td><td>PCM 型、マイク、再生、デバイス列挙、しきい値の算出</td></tr>
+          <tr><th><span class="mono num">cli.py</span></th><td >266</td><td>8 つのサブコマンド</td></tr>
+          <tr><th><span class="mono num">config.py</span></th><td >175</td><td>YAML の読み込み、環境変数の展開、相対パスの解決</td></tr>
+          <tr><th><span class="mono num">tools.py</span></th><td >147</td><td>ToolSpec / ToolRegistry と組み込み 4 ツール</td></tr>
+          <tr><th><span class="mono num">tts.py</span> <span >stt.py</span> <span >wake.py</span> <span >vad.py</span></th><td >470</td><td>各段の実装</td></tr>
+          <tr><th><span class="mono num">memory.py</span></th><td >92</td><td>事実の保管と会話ログ</td></tr>
+          <tr><th><span class="mono num">textutil.py</span></th><td >56</td><td>トークン列を文に切る</td></tr>
+          <tr><th><span class="mono num">errors.py</span></th><td >25</td><td>EngineUnavailable は「理由」と「対処」を持つ</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <caption>CLI — 手前の段から順に潰せるように分けてある</caption>
+        <thead>
+          <tr><th>コマンド</th><th>用途</th></tr>
+        </thead>
+        <tbody>
+          <tr><th><span class="mono">doctor</span></th><td>各段を実際に組み立て、足りないものと入れ方を出す</td></tr>
+          <tr><th><span class="mono">chat</span></th><td>キーボードで対話。マイク不要で LLM とツールを確認する</td></tr>
+          <tr><th><span class="mono">listen</span></th><td>常時待受を開始する</td></tr>
+          <tr><th><span class="mono">devices</span></th><td>入力デバイスを一覧する</td></tr>
+          <tr><th><span class="mono">level</span></th><td>マイクを 8 秒聞いて、VAD のしきい値を実測から提案する</td></tr>
+          <tr><th><span class="mono">say</span> / <span >transcribe</span></th><td>TTS / STT を単体で試す</td></tr>
+          <tr><th><span class="mono">tools</span></th><td>LLM に渡されるツールを一覧する（MCP の取り込み確認）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════ 検証 ══════════════ -->
+  <section>
+    <div class="sec-head">
+      <div class="eyebrow">09 / Verification</div>
+      <h2>何をどこまで確かめたか</h2>
+    </div>
+
+    <div class="body-grid">
+      <div class="rail">
+        <dl>
+          <dt>テスト</dt>
+          <dd>81 件 passed</dd>
+        </dl>
+        <dl>
+          <dt>所要</dt>
+          <dd>約 5 秒</dd>
+        </dl>
+        <dl>
+          <dt>外部依存</dt>
+          <dd>ネットワーク無し<br>マイク無し</dd>
+        </dl>
+      </div>
+
+      <div class="prose">
+        <p>テストはハードウェアに依存しない。パイプラインは偽のフレーム列を流し込んで検証し、LLM は SDK を差し替えて「ツールを実行し、結果を正しい形で返すか」を見ている。<strong>MCP ブリッジだけは実際に子プロセスの MCP サーバを起動して確かめている</strong>——ここは偽物で代替すると、検証したいスレッド境界がそのまま消えてしまうため。</p>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <caption>テストの内訳</caption>
+        <thead>
+          <tr><th>対象</th><th class="num">件</th><th>確かめていること</th></tr>
+        </thead>
+        <tbody>
+          <tr><th><span class="mono num">llm</span></th><td >11</td><td>ツール往復、並列呼び出しの束ね方、失敗の返し方、履歴の切り詰め</td></tr>
+          <tr><th><span class="mono num">cli</span></th><td >11</td><td>各サブコマンドの終了コードと、設定エラー時の案内</td></tr>
+          <tr><th><span class="mono num">audio</span></th><td >10</td><td>WAV 往復、ステレオのモノラル化、しきい値の算出</td></tr>
+          <tr><th><span class="mono num">config</span></th><td >9</td><td>環境変数の展開、YAML null の誤用検出、相対パスの解決</td></tr>
+          <tr><th><span class="mono num">memory</span></th><td >8</td><td>永続化、上限超過、壊れたファイルでの起動</td></tr>
+          <tr><th><span class="mono num">pipeline</span></th><td >7</td><td>プリロール、無音での打ち切り、上限での切断、逐次発話</td></tr>
+          <tr><th><span class="mono num">mcp_bridge</span></th><td >7</td><td>実サーバとの接続、ツール変換、起動失敗時の案内</td></tr>
+          <tr><th><span class="mono num">factory</span></th><td >6</td><td>未知のエンジン名・未知の設定項目の検出</td></tr>
+          <tr><th><span class="mono num">tools</span></th><td >6</td><td>レジストリ、名前衝突、例外の握り方</td></tr>
+          <tr><th><span class="mono num">textutil</span></th><td >5</td><td>文の切り出し、短い断片の併合、句点が無い場合</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>実装中に見つけて直した不具合</b>
+      MCP ブリッジで、スレッド起動後に <code>_shutdown</code> を <code>None</code> で上書きしており、ツール一覧の取得直後に接続が切れていた（実サーバを使うテストで発覚）。もう 1 件、句点が遠いときに全文が揃うまで発話が始まらない切り出しになっていた。
+    </div>
+
+    <div class="note">
+      <b>未検証の範囲</b>
+      マイクとスピーカーを繋いだ実機での通し動作は確認していない。開発環境に音声デバイスが無いため。手元では <code>doctor</code> → <code>devices</code> → <code>level</code> → <code>say</code> → <code>transcribe</code> → <code>listen</code> の順に潰すこと。
+    </div>
+  </section>
+
+  <footer>
+    リポジトリ hoshinoatsunori-ui/jarvis &nbsp;·&nbsp; ブランチ claude/jarvis-creation-vd9g7o<br>
+    本資料の数値・構成はコミット時点の実装から直接確認したもの。設計の前提にした調査記事の数値（CER、速度比、ライセンス条件）は独立に検証していない。
+  </footer>
+
+</div>
+
+</body>
+</html>

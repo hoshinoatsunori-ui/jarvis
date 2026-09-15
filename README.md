@@ -149,4 +149,7 @@ src/jarvis/
 - 話者識別、マルチルーム（音声サテライト）
 - ネット断・API障害時のローカルLLMへのフォールバック
 
-設計の背景と段階的な進め方は [docs/roadmap.md](docs/roadmap.md) を参照。
+## 資料
+
+- [docs/architecture.html](docs/architecture.html) — 構成と機能の全体像。信号の流れ、1ターンの処理、MCP 連携、レイテンシ設計、検証状況（ブラウザで開く）
+- [docs/roadmap.md](docs/roadmap.md) — カスケードを選んだ理由と、Phase 0〜4 の進め方
