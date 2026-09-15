@@ -1,1 +1,152 @@
 # jarvis
+
+常時待受型の音声AIアシスタント。**ウェイクワード → VAD → STT → LLM(tool use) → TTS** のカスケード構成で、各段を設定1行で差し替えられる。
+
+```
+マイク ─→ ウェイクワード ─→ VAD ─→ STT ─→ LLM ─→ TTS ─→ スピーカー
+         openwakeword      energy  faster   Claude   VOICEVOX
+         porcupine         silero  whisper  (+MCP)   AivisSpeech
+         manual(Enter)             openai            system / OpenAI
+```
+
+S2S（OpenAI Realtime / Gemini Live）ではなくカスケードを選んでいるのは、各段を個別に差し替えられるため。日本語の STT/TTS をローカルに置いたまま LLM だけクラウドにする、といった構成が取れる。代わりに割り込み（barge-in）は自前実装が要る（**未実装**）。
+
+## 使いはじめ
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[llm]"                 # 最小構成: LLM だけ
+cp config.example.yaml config.yaml
+cp .env.example .env                    # APIキーを書く
+
+# マイク不要。キーボードで対話して、プロンプトとツールの挙動を先に確かめる
+jarvis chat --tts none
+
+# どの段が動く状態かを一覧する
+jarvis doctor
+```
+
+`jarvis doctor` は各段を実際に組み立てて、足りないものと入れ方を出す。
+
+```
+  OK  wake   [manual]
+  OK  vad    [energy]
+  NG  stt    [faster_whisper]
+      stt:faster_whisper: faster-whisper が入っていない
+      対処: pip install "jarvis[stt-local]"
+  OK  tools (4個: get_current_time, remember, recall, forget)
+```
+
+## 音声で動かすまで
+
+段ごとに必要なものが違う。全部入れる必要はなく、使う段だけ入れればいい。
+
+| 段 | 既定 | 入れるもの |
+|---|---|---|
+| マイク/スピーカー | – | `pip install -e ".[audio]"`（Linux は `apt install libportaudio2`） |
+| ウェイクワード | openwakeword | `pip install -e ".[wake-oww]"` → `python -c "import openwakeword; openwakeword.utils.download_models()"` |
+| VAD | energy | 追加なし（silero を使うなら `".[vad-silero]"` と `silero_vad.onnx`） |
+| STT | kotoba-whisper | `pip install -e ".[stt-local]"`（初回はモデルを自動取得） |
+| LLM | Claude | `pip install -e ".[llm]"` + `ANTHROPIC_API_KEY` |
+| TTS | VOICEVOX | [VOICEVOX](https://voicevox.hiroshiba.jp/) か [AivisSpeech](https://aivis-project.com/) を起動しておく |
+
+```bash
+jarvis devices                          # 使うマイクを選ぶ
+jarvis level                            # VAD のしきい値を実測する（部屋ごとに違う）
+jarvis say "テストです"                  # TTS だけ試す
+jarvis transcribe sample.wav            # STT だけ試す
+jarvis listen                           # 常時待受を開始
+```
+
+`jarvis level` は8秒ほどマイクを聞いて、暗騒音と発話の実測値から `vad.options.threshold` の値を提案する。既定値のまま使うと、静かすぎる部屋では声を取りこぼし、うるさい部屋では常に喋っていると判定される。
+
+うまく動かないときは、まず一番手前の段から潰す。
+
+```bash
+jarvis listen --wake manual             # ウェイクワードを飛ばして Enter で起動
+jarvis listen --stt none --llm echo     # 録音の切り出しだけ確認する
+jarvis chat                             # マイクを外して LLM と TTS だけ見る
+```
+
+## 設定
+
+`config.yaml` の各段は `engine` と `options` の2つだけ。差し替えるときに触るのは `engine` の1行。
+
+```yaml
+tts:
+  engine: aivisspeech      # voicevox から差し替え。ポート既定値も一緒に変わる
+  options:
+    speaker: 888753760
+```
+
+`${VAR}` は環境変数に展開される（`${VAR:-既定値}` も可）。APIキーを YAML に直接書かないため。
+
+> 「何もしないエンジン」の名前は `none`。YAML では `null` は文字列でなく null リテラルとして読まれるので、エンジン名には使えない。
+
+## ツールと MCP
+
+LLM が呼べるツールは2種類ある。どちらも LLM 側から見れば区別はない。
+
+- **組み込み**: `get_current_time` / `remember` / `recall` / `forget`
+- **MCP サーバ**: `config.yaml` の `tools.mcp_servers` に stdio 起動のコマンドを書く
+
+```yaml
+tools:
+  mcp_servers:
+    filesystem:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"]
+```
+
+取り込まれたツールは `<サーバ名>__<ツール名>` という名前になる（サーバ間の名前衝突を避けるため）。`jarvis tools` で一覧できる。
+
+MCP の Python SDK は asyncio 前提だが、パイプライン本体は同期で回っている。専用スレッドでイベントループを1本持ち、接続は常駐タスクが開いたまま保持する（`src/jarvis/mcp_bridge.py`）。
+
+## 長期記憶
+
+`remember` で保存した事実は `state/memory.json` に残り、次回以降システムプロンプトに差し込まれる。会話は `state/conversation.jsonl` に追記される。件数が増えて効かなくなったら、`Memory.as_prompt_block()` をベクトル検索に差し替える。
+
+## レイテンシについて
+
+体感を決めるのは「最初の音が出るまで」なので、そこを削る作りにしてある。
+
+- LLM はストリーミングで受け、**1文できた時点で TTS に渡す**（`textutil.iter_sentences`）。文末が遠いときは読点で切る。
+- `effort: low` で思考を浅くする。雑談や家電操作に深い推論は要らない。
+- **thinking は切らない**。Claude Opus 5 で thinking を無効にすると、ツール呼び出しを `tool_use` ブロックではなく本文テキストに書いてしまい、呼び出しが実行されないまま会話が進む既知の失敗モードがある。速くしたいなら effort を下げる。
+
+## 開発
+
+```bash
+pip install -e ".[dev,mcp]"
+pytest                                  # 81件。ネットワークもマイクも使わない
+```
+
+テストはハードウェアに依存しない。パイプラインは偽のフレーム列を流し込んで検証し、LLM は SDK を差し替えて「ツールを実行して結果を正しい形で返すか」を見ている。MCP ブリッジだけは実際に子プロセスの MCP サーバを起動して確かめている（`tests/mcp_echo_server.py`）。
+
+```
+src/jarvis/
+  interfaces.py   各段の抽象（WakeWordEngine / VAD / SpeechToText / TextToSpeech / Agent）
+  factory.py      「エンジン名 → 実装」の対応表。段を足すときはここに1行
+  pipeline.py     VoiceLoop（待受〜録音）と Conversation（LLM〜発話）
+  llm.py          Claude のツールループ
+  mcp_bridge.py   MCP サーバ → ToolSpec
+  textutil.py     ストリームを文に切る
+  audio.py        PCM 型・マイク・再生
+```
+
+## 現状と、これから
+
+動作確認済み:
+
+- テキスト対話（`jarvis chat`）、設定の読み込みと差し替え、ツールの実行、MCP サーバ連携、発話の切り出し、録音の切り出しロジック、しきい値の算出
+- 上記はすべてテストで担保している（81件）
+
+**未検証**: マイクとスピーカーを繋いだ実機での通し動作。この実装はコンテナ上で書かれており、実際の音声入出力デバイスでの確認は行っていない。`jarvis doctor` → `jarvis say` → `jarvis transcribe` → `jarvis listen` の順で手元で潰していくこと。
+
+**未実装**:
+
+- 割り込み（barge-in）。TTS 再生中のマイク監視とエコーキャンセルが要る
+- 話者識別、マルチルーム（音声サテライト）
+- ネット断・API障害時のローカルLLMへのフォールバック
+
+設計の背景と段階的な進め方は [docs/roadmap.md](docs/roadmap.md) を参照。

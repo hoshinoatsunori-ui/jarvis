@@ -1,0 +1,84 @@
+# Jarvis 設定ファイル。`config.yaml` にコピーして使う。
+#
+# 各段は `engine`（実装名）と `options`（その実装への引数）でできている。
+# 段を差し替えるときに触るのは engine の1行だけ。
+# `${VAR}` は環境変数に展開される（`${VAR:-既定値}` も書ける）。APIキーはここに直接書かない。
+#
+# 注意: 「何もしないエンジン」の名前は `none`。YAML では `null` は文字列ではなく
+# null リテラルとして読まれるため、エンジン名には使えない。
+
+language: ja
+
+audio:
+  sample_rate: 16000   # Whisper もウェイクワード検出も 16kHz 前提
+  frame_ms: 30
+  input_device: null   # マイクの指定。null で既定デバイス（`python -m sounddevice` で一覧）
+
+# --- ウェイクワード ---------------------------------------------------------
+# manual       : Enter キーで起動（マイク未整備でも先に進める。Phase 0 向け）
+# openwakeword : 無料・ローカル。同梱モデルは非商用ライセンス(CC BY-NC-SA 4.0)
+# porcupine    : 精度と軽さで有利。Personal プランは非商用かつ x86_64 限定
+wake:
+  engine: openwakeword
+  options:
+    model: hey_jarvis
+    threshold: 0.5
+
+# --- VAD --------------------------------------------------------------------
+# energy : 依存ゼロ。静かな部屋向け。threshold は環境ごとに実測して決める
+# silero : ML ベース。雑音・遠距離集音に強い（onnxruntime とモデルファイルが要る）
+vad:
+  engine: energy
+  options:
+    threshold: 0.02
+
+# --- STT --------------------------------------------------------------------
+# 日本語ローカルの既定は kotoba-whisper-v2.0（faster-whisper 変換版）。
+# 精度が足りなければ large-v3 系へ、遅ければ device: cuda / compute_type: int8 を検討する。
+stt:
+  engine: faster_whisper
+  options:
+    model: kotoba-tech/kotoba-whisper-v2.0-faster
+    device: auto          # auto | cpu | cuda
+    compute_type: default # int8 / int8_float16 / float16 など
+    language: ja
+
+# --- LLM --------------------------------------------------------------------
+# effort を下げると思考が浅くなり応答が速くなる。家電操作や雑談ならこれで十分。
+# thinking は切らないこと（切るとツール呼び出しが本文テキストに紛れる既知の失敗モードがある）。
+llm:
+  engine: anthropic
+  options:
+    model: claude-opus-5
+    effort: low
+    max_tokens: 2048
+    max_history_turns: 12
+
+# --- TTS --------------------------------------------------------------------
+# voicevox    : 既定ポート 50021
+# aivisspeech : 既定ポート 10101（VOICEVOX 互換 API。Style-Bert-VITS2 ベース）
+# system      : macOS の say / Linux の espeak-ng。品質は妥協だが依存ゼロ
+tts:
+  engine: voicevox
+  options:
+    base_url: http://127.0.0.1:50021
+    speaker: 1
+
+# --- ツール -----------------------------------------------------------------
+# builtin: 時刻取得と長期記憶の読み書き
+# mcp_servers: stdio で起動する MCP サーバ。ツール名は `<サーバ名>__<ツール名>` になる
+tools:
+  builtin: true
+  mcp_servers: {}
+    # filesystem:
+    #   command: npx
+    #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"]
+    # home-assistant:
+    #   command: uvx
+    #   args: ["mcp-server-home-assistant"]
+    #   env:
+    #     HA_TOKEN: ${HA_TOKEN}
+
+memory:
+  path: state/memory.json
+  log_path: state/conversation.jsonl
