@@ -96,3 +96,48 @@ def test_chat_does_not_print_the_reply_twice(workdir, capsys):
     finally:
         builtins.input = original
     assert capsys.readouterr().out.count("「やあ」と聞こえました。") == 1
+
+
+def test_stdio_is_left_alone_off_windows(monkeypatch):
+    from jarvis import cli
+
+    calls = []
+
+    class Stream:
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli.sys, "stdout", Stream())
+    cli._force_utf8_stdio()
+    assert calls == []
+
+
+def test_stdio_is_switched_to_utf8_on_windows(monkeypatch):
+    # Windows のコンソール既定は cp932。日本語がそのままだと化ける。
+    from jarvis import cli
+
+    calls = []
+
+    class Stream:
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+    monkeypatch.setattr(cli.platform, "system", lambda: "Windows")
+    for name in ("stdout", "stderr", "stdin"):
+        monkeypatch.setattr(cli.sys, name, Stream())
+    cli._force_utf8_stdio()
+    assert calls == [{"encoding": "utf-8", "errors": "replace"}] * 3
+
+
+def test_stdio_reconfigure_failure_does_not_stop_startup(monkeypatch):
+    from jarvis import cli
+
+    class Stream:
+        def reconfigure(self, **kw):
+            raise OSError("リダイレクト先が再設定に対応していない")
+
+    monkeypatch.setattr(cli.platform, "system", lambda: "Windows")
+    for name in ("stdout", "stderr", "stdin"):
+        monkeypatch.setattr(cli.sys, name, Stream())
+    cli._force_utf8_stdio()  # 例外が漏れないこと

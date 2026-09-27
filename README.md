@@ -50,6 +50,10 @@ jarvis doctor
 | LLM | Claude | `pip install -e ".[llm]"` + `ANTHROPIC_API_KEY` |
 | TTS | VOICEVOX | [VOICEVOX](https://voicevox.hiroshiba.jp/) か [AivisSpeech](https://aivis-project.com/) を起動しておく |
 
+`--tts system` を使えば、TTS エンジンを入れずに音を出せる。品質は妥協になるが、最初の通し確認はこれで足りる。macOS は `say`、Linux は `espeak-ng`、Windows は PowerShell 経由の SAPI を使う。Windows の SAPI は PowerShell の起動ぶん（数百 ms）だけ発話開始が遅れるので、常用するなら VOICEVOX に移ること。
+
+Windows では portaudio の別途導入は要らない（sounddevice の wheel に同梱されている）。日本語の出力が化けないよう、CLI は Windows でのみ標準入出力を UTF-8 に切り替える。
+
 ```bash
 jarvis devices                          # 使うマイクを選ぶ
 jarvis level                            # VAD のしきい値を実測する（部屋ごとに違う）

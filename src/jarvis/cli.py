@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import platform
 import sys
 from typing import Any
 
@@ -26,7 +27,27 @@ from .pipeline import Conversation, ListenSettings, VoiceLoop
 STAGE_OVERRIDES = ("wake", "vad", "stt", "llm", "tts")
 
 
+def _force_utf8_stdio() -> None:
+    """Windows のコンソール既定は cp932 なので、日本語の出力が化ける。
+
+    VS Code の統合ターミナルも Windows Terminal も UTF-8 で受けるため、
+    こちら側を合わせる。errors="replace" にしてあるのは、表示できない文字で
+    会話そのものが落ちるのを避けるため。
+    """
+    if platform.system() != "Windows":
+        return
+    for stream in (sys.stdout, sys.stderr, sys.stdin):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                # リダイレクト先によっては再設定できない。化けても動作は続ける。
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_stdio()
     parser = _build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(
