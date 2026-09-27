@@ -435,20 +435,20 @@ footer {
     </div>
     <div class="spec-stamp">
       内部形式 &nbsp;<b>16 bit / 16 kHz / mono PCM</b><br>
-      実装 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Python 3.10+ / 2,223 行</b><br>
-      テスト &nbsp;&nbsp;&nbsp;<b>81 件 passed</b><br>
+      実装 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Python 3.10+ / 2,700 行</b><br>
+      テスト &nbsp;&nbsp;&nbsp;<b>159 件 passed</b><br>
       既定 LLM &nbsp;<b>claude-opus-5</b>
     </div>
   </header>
 
   <div class="status-strip">
     <div class="status-cell">
-      <span class="tag ok">実装・テスト済み</span>
-      <p>パイプライン全段、ツール実行、MCP 連携、設定系、CLI 8 コマンド。ハードウェアに依存しないテストで担保。</p>
+      <span class="tag ok">実機で一周済み</span>
+      <p>Windows 11 でマイクからスピーカーまで通しで確認。日本語の認識、tool use の実行、文単位の逐次読み上げまで到達。</p>
     </div>
     <div class="status-cell">
-      <span class="tag wrn">未検証</span>
-      <p>マイクとスピーカーを繋いだ実機での通し動作。開発環境に音声デバイスが無いため確認していない。</p>
+      <span class="tag wrn">実機未確認</span>
+      <p>openWakeWord / Porcupine、silero VAD、VOICEVOX / AivisSpeech。代替の段で一周したため、それ自体は動かしていない。macOS と Linux の経路も同様。</p>
     </div>
     <div class="status-cell">
       <span class="tag off">未実装</span>
@@ -744,27 +744,27 @@ footer {
         <tbody>
           <tr>
             <th>wake</th>
-            <td><span class="mono">manual</span> / <span ><b>openwakeword</b></span> / <span >porcupine</span></td>
+            <td><span class="mono">manual</span> / <span class="mono"><b>openwakeword</b></span> / <span class="mono">porcupine</span></td>
             <td><span class="mono">manual</span> は Enter で起動。マイク未整備でも先へ進める</td>
           </tr>
           <tr>
             <th>vad</th>
-            <td><span class="mono"><b>energy</b></span> / <span >silero</span></td>
+            <td><span class="mono"><b>energy</b></span> / <span class="mono">silero</span></td>
             <td><span class="mono">energy</span> は依存ゼロ。しきい値は <code>jarvis level</code> で実測する</td>
           </tr>
           <tr>
             <th>stt</th>
-            <td><span class="mono"><b>faster_whisper</b></span> / <span >openai</span> / <span >none</span></td>
+            <td><span class="mono"><b>faster_whisper</b></span> / <span class="mono">openai</span> / <span class="mono">none</span></td>
             <td>既定モデルは kotoba-whisper-v2.0（日本語特化の faster-whisper 変換版）</td>
           </tr>
           <tr>
             <th>llm</th>
-            <td><span class="mono"><b>anthropic</b></span> / <span >echo</span></td>
+            <td><span class="mono"><b>anthropic</b></span> / <span class="mono">echo</span></td>
             <td><span class="mono">echo</span> は API を叩かず配線だけ確認する用</td>
           </tr>
           <tr>
             <th>tts</th>
-            <td><span class="mono"><b>voicevox</b></span> / <span >aivisspeech</span> / <span >openai</span> / <span >system</span> / <span >none</span></td>
+            <td><span class="mono"><b>voicevox</b></span> / <span class="mono">aivisspeech</span> / <span class="mono">openai</span> / <span class="mono">system</span> / <span class="mono">none</span></td>
             <td>AivisSpeech は VOICEVOX 互換 API。既定ポートだけ差し替わる</td>
           </tr>
         </tbody>
@@ -866,7 +866,7 @@ footer {
   <span class="k">mcp_servers</span>:
     <span class="k">filesystem</span>:
       <span class="k">command</span>: npx
-      <span class="k c">args</span>: [<span >"-y"</span>, <span >"@modelcontextprotocol/server-filesystem"</span>, <span >"/home/me/notes"</span>]</pre>
+      <span class="k">args</span>: [<span class="c">"-y"</span>, <span class="c">"@modelcontextprotocol/server-filesystem"</span>, <span class="c">"/home/me/notes"</span>]</pre>
   </section>
 
   <!-- ══════════════ レイテンシ設計 ══════════════ -->
@@ -955,24 +955,24 @@ footer {
 
     <div class="table-scroll">
       <table>
-        <caption>src/jarvis — 2,223 行</caption>
+        <caption>src/jarvis — 2,700 行</caption>
         <thead>
           <tr><th>モジュール</th><th class="num">行</th><th>持ちもの</th></tr>
         </thead>
         <tbody>
-          <tr><th><span class="mono num">interfaces.py</span></th><td >81</td><td>5 つの抽象。WakeWordEngine / VAD / SpeechToText / TextToSpeech / Agent</td></tr>
-          <tr><th><span class="mono num">factory.py</span></th><td >141</td><td>「エンジン名 → 実装」の唯一の対応表。遅延 import と設定項目の検証</td></tr>
-          <tr><th><span class="mono num">pipeline.py</span></th><td >155</td><td>VoiceLoop（待受〜録音）と Conversation（LLM〜発話）</td></tr>
-          <tr><th><span class="mono num">llm.py</span></th><td >191</td><td>Claude のツールループ、履歴の切り詰め、拒否時の扱い</td></tr>
-          <tr><th><span class="mono num">mcp_bridge.py</span></th><td >189</td><td>MCP サーバ → ToolSpec。専用スレッドと接続の保持</td></tr>
-          <tr><th><span class="mono num">audio.py</span></th><td >223</td><td>PCM 型、マイク、再生、デバイス列挙、しきい値の算出</td></tr>
-          <tr><th><span class="mono num">cli.py</span></th><td >266</td><td>8 つのサブコマンド</td></tr>
-          <tr><th><span class="mono num">config.py</span></th><td >175</td><td>YAML の読み込み、環境変数の展開、相対パスの解決</td></tr>
-          <tr><th><span class="mono num">tools.py</span></th><td >147</td><td>ToolSpec / ToolRegistry と組み込み 4 ツール</td></tr>
-          <tr><th><span class="mono num">tts.py</span> <span >stt.py</span> <span >wake.py</span> <span >vad.py</span></th><td >470</td><td>各段の実装</td></tr>
-          <tr><th><span class="mono num">memory.py</span></th><td >92</td><td>事実の保管と会話ログ</td></tr>
-          <tr><th><span class="mono num">textutil.py</span></th><td >56</td><td>トークン列を文に切る</td></tr>
-          <tr><th><span class="mono num">errors.py</span></th><td >25</td><td>EngineUnavailable は「理由」と「対処」を持つ</td></tr>
+          <tr><th><span class="mono">interfaces.py</span></th><td class="num">110</td><td>5 つの抽象。WakeWordEngine / VAD / SpeechToText / TextToSpeech / Agent</td></tr>
+          <tr><th><span class="mono">factory.py</span></th><td class="num">143</td><td>「エンジン名 → 実装」の唯一の対応表。遅延 import と設定項目の検証</td></tr>
+          <tr><th><span class="mono">pipeline.py</span></th><td class="num">155</td><td>VoiceLoop（待受〜録音）と Conversation（LLM〜発話）</td></tr>
+          <tr><th><span class="mono">llm.py</span></th><td class="num">253</td><td>Claude のツールループ、履歴の切り詰め、拒否時の扱い</td></tr>
+          <tr><th><span class="mono">mcp_bridge.py</span></th><td class="num">189</td><td>MCP サーバ → ToolSpec。専用スレッドと接続の保持</td></tr>
+          <tr><th><span class="mono">audio.py</span></th><td class="num">223</td><td>PCM 型、マイク、再生、デバイス列挙、しきい値の算出</td></tr>
+          <tr><th><span class="mono">cli.py</span></th><td class="num">391</td><td>8 つのサブコマンド</td></tr>
+          <tr><th><span class="mono">config.py</span></th><td class="num">221</td><td>YAML の読み込み、環境変数の展開、相対パスの解決</td></tr>
+          <tr><th><span class="mono">tools.py</span></th><td class="num">147</td><td>ToolSpec / ToolRegistry と組み込み 4 ツール</td></tr>
+          <tr><th><span class="mono">tts.py</span> <span class="mono">stt.py</span> <span class="mono">wake.py</span> <span class="mono">vad.py</span></th><td class="num">675</td><td>各段の実装</td></tr>
+          <tr><th><span class="mono">memory.py</span></th><td class="num">92</td><td>事実の保管と会話ログ</td></tr>
+          <tr><th><span class="mono">textutil.py</span></th><td class="num">56</td><td>トークン列を文に切る</td></tr>
+          <tr><th><span class="mono">errors.py</span></th><td class="num">33</td><td>EngineUnavailable は「理由」と「対処」を持つ</td></tr>
         </tbody>
       </table>
     </div>
@@ -989,7 +989,7 @@ footer {
           <tr><th><span class="mono">listen</span></th><td>常時待受を開始する</td></tr>
           <tr><th><span class="mono">devices</span></th><td>入力デバイスを一覧する</td></tr>
           <tr><th><span class="mono">level</span></th><td>マイクを 8 秒聞いて、VAD のしきい値を実測から提案する</td></tr>
-          <tr><th><span class="mono">say</span> / <span >transcribe</span></th><td>TTS / STT を単体で試す</td></tr>
+          <tr><th><span class="mono">say</span> / <span class="mono">transcribe</span></th><td>TTS / STT を単体で試す</td></tr>
           <tr><th><span class="mono">tools</span></th><td>LLM に渡されるツールを一覧する（MCP の取り込み確認）</td></tr>
         </tbody>
       </table>
@@ -1007,11 +1007,11 @@ footer {
       <div class="rail">
         <dl>
           <dt>テスト</dt>
-          <dd>81 件 passed</dd>
+          <dd>159 件 passed</dd>
         </dl>
         <dl>
           <dt>所要</dt>
-          <dd>約 5 秒</dd>
+          <dd>約 7 秒</dd>
         </dl>
         <dl>
           <dt>外部依存</dt>
@@ -1021,6 +1021,7 @@ footer {
 
       <div class="prose">
         <p>テストはハードウェアに依存しない。パイプラインは偽のフレーム列を流し込んで検証し、LLM は SDK を差し替えて「ツールを実行し、結果を正しい形で返すか」を見ている。<strong>MCP ブリッジだけは実際に子プロセスの MCP サーバを起動して確かめている</strong>——ここは偽物で代替すると、検証したいスレッド境界がそのまま消えてしまうため。</p>
+        <p>ただし、この一式を通しても<strong>実機で 4 件の不具合が出た</strong>。どれも「動かない」ではなく「悪い場所で落ちる」種類のもので、実際に動かすまで見えなかった。</p>
       </div>
     </div>
 
@@ -1031,28 +1032,30 @@ footer {
           <tr><th>対象</th><th class="num">件</th><th>確かめていること</th></tr>
         </thead>
         <tbody>
-          <tr><th><span class="mono num">llm</span></th><td >11</td><td>ツール往復、並列呼び出しの束ね方、失敗の返し方、履歴の切り詰め</td></tr>
-          <tr><th><span class="mono num">cli</span></th><td >11</td><td>各サブコマンドの終了コードと、設定エラー時の案内</td></tr>
-          <tr><th><span class="mono num">audio</span></th><td >10</td><td>WAV 往復、ステレオのモノラル化、しきい値の算出</td></tr>
-          <tr><th><span class="mono num">config</span></th><td >9</td><td>環境変数の展開、YAML null の誤用検出、相対パスの解決</td></tr>
-          <tr><th><span class="mono num">memory</span></th><td >8</td><td>永続化、上限超過、壊れたファイルでの起動</td></tr>
-          <tr><th><span class="mono num">pipeline</span></th><td >7</td><td>プリロール、無音での打ち切り、上限での切断、逐次発話</td></tr>
-          <tr><th><span class="mono num">mcp_bridge</span></th><td >7</td><td>実サーバとの接続、ツール変換、起動失敗時の案内</td></tr>
-          <tr><th><span class="mono num">factory</span></th><td >6</td><td>未知のエンジン名・未知の設定項目の検出</td></tr>
-          <tr><th><span class="mono num">tools</span></th><td >6</td><td>レジストリ、名前衝突、例外の握り方</td></tr>
-          <tr><th><span class="mono num">textutil</span></th><td >5</td><td>文の切り出し、短い断片の併合、句点が無い場合</td></tr>
+          <tr><th><span class="mono">cli</span></th><td class="num">36</td><td>各サブコマンドの終了コード、オプションの位置、APIキーの形の診断</td></tr>
+          <tr><th><span class="mono">llm</span></th><td class="num">19</td><td>ツール往復、並列呼び出しの束ね方、API 失敗の振り分け、履歴の切り詰め</td></tr>
+          <tr><th><span class="mono">config</span></th><td class="num">15</td><td>環境変数の展開、.env の読み込み、YAML null の誤用検出</td></tr>
+          <tr><th><span class="mono">stt</span></th><td class="num">13</td><td>モデル読み込みの時機、GPU が使えないときの CPU への退避</td></tr>
+          <tr><th><span class="mono">tts</span></th><td class="num">12</td><td>OS ごとの分岐、SAPI スクリプトの組み立て、失敗時の案内</td></tr>
+          <tr><th><span class="mono">audio</span></th><td class="num">10</td><td>WAV 往復、ステレオのモノラル化、しきい値の算出</td></tr>
+          <tr><th><span class="mono">memory</span></th><td class="num">8</td><td>永続化、上限超過、壊れたファイルでの起動</td></tr>
+          <tr><th><span class="mono">pipeline</span></th><td class="num">7</td><td>プリロール、無音での打ち切り、上限での切断、逐次発話</td></tr>
+          <tr><th><span class="mono">mcp_bridge</span></th><td class="num">7</td><td>実サーバとの接続、ツール変換、起動失敗時の案内</td></tr>
+          <tr><th><span class="mono">factory</span></th><td class="num">7</td><td>未知のエンジン名、前のエンジンの設定が残っている場合の検出</td></tr>
+          <tr><th><span class="mono">tools</span></th><td class="num">6</td><td>レジストリ、名前衝突、例外の握り方</td></tr>
+          <tr><th><span class="mono">textutil</span></th><td class="num">5</td><td>文の切り出し、短い断片の併合、句点が無い場合</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="note">
-      <b>実装中に見つけて直した不具合</b>
-      MCP ブリッジで、スレッド起動後に <code>_shutdown</code> を <code>None</code> で上書きしており、ツール一覧の取得直後に接続が切れていた（実サーバを使うテストで発覚）。もう 1 件、句点が遠いときに全文が揃うまで発話が始まらない切り出しになっていた。
+      <b>実機で初めて分かったこと</b>
+      Windows に該当する TTS が無く、パイプラインを最後まで通せなかった。認証エラーが生のトレースバックで落ち、常時待受が一度の通信失敗で死ぬ状態だった。診断コマンドが 1.5GB のモデルを取得し始めた。そして <code>device: auto</code> が GPU を選んだ環境で、<strong>モデル読み込みは通るのに最初の書き起こしで落ちる</strong>——待受に入ったあと、最初に話しかけた瞬間に会話ごと死ぬ。起動時に一度通して確かめる、止めるべきか続けられるかを振り分ける、という形で直した。
     </div>
 
     <div class="note">
-      <b>未検証の範囲</b>
-      マイクとスピーカーを繋いだ実機での通し動作は確認していない。開発環境に音声デバイスが無いため。手元では <code>doctor</code> → <code>devices</code> → <code>level</code> → <code>say</code> → <code>transcribe</code> → <code>listen</code> の順に潰すこと。
+      <b>まだ実機で見ていないもの</b>
+      openWakeWord / Porcupine、silero VAD、VOICEVOX / AivisSpeech。いずれも追加インストールの要らない段（<code>manual</code>、<code>energy</code>、<code>system</code>）で代替して一周を確認したため、それ自体は動かしていない。macOS と Linux も未確認で、TTS の分岐が OS ごとに違うのでそれぞれで見る必要がある。
     </div>
   </section>
 

@@ -124,7 +124,7 @@ MCP の Python SDK は asyncio 前提だが、パイプライン本体は同期�
 
 ```bash
 pip install -e ".[dev,mcp]"
-pytest                                  # 81件。ネットワークもマイクも使わない
+pytest                                  # 159件。ネットワークもマイクも使わない
 ```
 
 テストはハードウェアに依存しない。パイプラインは偽のフレーム列を流し込んで検証し、LLM は SDK を差し替えて「ツールを実行して結果を正しい形で返すか」を見ている。MCP ブリッジだけは実際に子プロセスの MCP サーバを起動して確かめている（`tests/mcp_echo_server.py`）。
@@ -142,12 +142,27 @@ src/jarvis/
 
 ## 現状と、これから
 
-動作確認済み:
+**Phase 0 は実機で一周した。** Windows 11 + VS Code で、マイクに話しかけてから
+スピーカーが応答するまでを通しで確認している。
 
-- テキスト対話（`jarvis chat`）、設定の読み込みと差し替え、ツールの実行、MCP サーバ連携、発話の切り出し、録音の切り出しロジック、しきい値の算出
-- 上記はすべてテストで担保している（81件）
+実機で通った構成:
 
-**未検証**: マイクとスピーカーを繋いだ実機での通し動作。この実装はコンテナ上で書かれており、実際の音声入出力デバイスでの確認は行っていない。`jarvis doctor` → `jarvis say` → `jarvis transcribe` → `jarvis listen` の順で手元で潰していくこと。
+| 段 | 実装 | 備考 |
+|---|---|---|
+| wake | `manual` | Enter 起動。openWakeWord は未検証 |
+| vad | `energy` | `jarvis level` で実測したしきい値 |
+| stt | `faster_whisper` / kotoba-whisper-v2.0 | CPU。日本語の認識を確認 |
+| llm | `anthropic` / claude-opus-5 | tool use（`get_current_time`）まで実行された |
+| tts | `system` | Windows SAPI。日本語で読み上げ |
+
+応答が文単位で分割され、1文ずつ読み上げられることも確認できている。
+
+**まだ実機で見ていないもの**:
+
+- openWakeWord / Porcupine によるウェイクワード検出（`manual` で代替して確認した）
+- silero VAD
+- VOICEVOX / AivisSpeech（`system` で代替して確認した）
+- macOS と Linux の経路。TTS の分岐が OS ごとに違うので、それぞれで確認が要る
 
 **未実装**:
 
