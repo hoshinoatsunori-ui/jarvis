@@ -255,3 +255,77 @@ def test_doctor_tolerates_stages_without_a_check(workdir, capsys):
     # wake と vad は check() を持たない。呼び出し側が落ちないこと。
     assert main([*OFFLINE, "doctor"]) == 0
     assert "wake" in capsys.readouterr().out
+
+
+# --- APIキーの出どころと形の診断 --------------------------------------------
+
+@pytest.fixture
+def no_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+def test_doctor_reports_when_no_key_is_set(workdir, capsys, no_key):
+    main([*OFFLINE, "doctor"])
+    assert "APIキー: 未設定" in capsys.readouterr().out
+
+
+def test_doctor_masks_the_key_but_shows_its_shape(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-" + "x" * 40 + "WXYZ")
+    main([*OFFLINE, "doctor"])
+    out = capsys.readouterr().out
+    assert "sk-ant-api03-…WXYZ" in out
+    assert "長さ 57" in out
+    assert "x" * 40 not in out  # 値そのものは出さない
+
+
+def test_doctor_flags_a_key_wrapped_in_quotes(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", '"sk-ant-api03-' + "x" * 40 + '"')
+    main([*OFFLINE, "doctor"])
+    assert "引用符" in capsys.readouterr().out
+
+
+def test_doctor_flags_surrounding_whitespace(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-" + "x" * 40 + "\n")
+    assert "空白か改行" in _doctor_output(capsys)
+
+
+def test_doctor_flags_a_truncated_key(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-short")
+    assert "切れていないか" in _doctor_output(capsys)
+
+
+def test_doctor_flags_something_that_is_not_a_key(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "01234567-89ab-cdef-0123-456789abcdef")
+    assert "キーID" in _doctor_output(capsys)
+
+
+def test_doctor_accepts_a_well_formed_key_without_warnings(workdir, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-" + "x" * 80)
+    assert "⚠" not in _doctor_output(capsys)
+
+
+def test_doctor_names_the_config_as_the_key_source(workdir, capsys, no_key):
+    (workdir / "config.yaml").write_text(
+        "llm:\n  engine: echo\n  options:\n    api_key: sk-ant-api03-fromconfig\n",
+        encoding="utf-8",
+    )
+    main(["--wake", "manual", "--vad", "energy", "--stt", "none", "--tts", "none", "doctor"])
+    assert "config.yaml の llm.options.api_key" in capsys.readouterr().out
+
+
+def test_doctor_reports_the_env_file_location(workdir, capsys, no_key):
+    (workdir / ".env").write_text("SOMETHING=1\n", encoding="utf-8")
+    main([*OFFLINE, "doctor"])
+    out = capsys.readouterr().out
+    assert ".env" in out
+    assert "（無し）" not in out
+
+
+def test_doctor_says_when_there_is_no_env_file(workdir, capsys, no_key):
+    main([*OFFLINE, "doctor"])
+    assert ".env: （無し）" in capsys.readouterr().out
+
+
+def _doctor_output(capsys) -> str:
+    main([*OFFLINE, "doctor"])
+    return capsys.readouterr().out

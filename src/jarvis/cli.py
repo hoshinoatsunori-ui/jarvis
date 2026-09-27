@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import platform
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__, factory
 from .audio import Audio, Microphone, list_input_devices, rms, suggest_threshold
-from .config import Config, StageConfig, load_env_file
+from .config import DEFAULT_ENV_FILE, Config, StageConfig, load_env_file
 from .errors import ConfigError, EngineUnavailable, JarvisError
 from .pipeline import Conversation, ListenSettings, VoiceLoop
 
@@ -162,7 +164,10 @@ def _load_config(args: argparse.Namespace) -> Config:
 
 
 def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
-    print(f"設定: {config.source or '（既定値。config.yaml が見つからない）'}\n")
+    print(f"設定: {config.source or '（既定値。config.yaml が見つからない）'}")
+    for line in _credential_lines(config):
+        print(line)
+    print()
     memory = factory.build_memory(config)
     checks: list[tuple[str, Any]] = [
         (f"wake   [{config.wake.engine}]", lambda: factory.build_wake(config.wake)),
@@ -205,6 +210,56 @@ def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
         return 1
     print("すべての段が利用可能。`jarvis listen` で待受を開始できる。")
     return 0
+
+
+#: APIキーの形。ここから外れていれば貼り間違いの可能性が高い。
+_KEY_PREFIX = "sk-ant-"
+
+
+def _credential_lines(config: Config) -> list[str]:
+    """APIキーの出どころと形を報告する。
+
+    401 の原因は「設定したつもりのものが届いていない」か「届いたものが
+    壊れている」のどちらか。値そのものは伏せたまま、その2つを見分ける。
+    """
+    lines = []
+    env_path = Path(DEFAULT_ENV_FILE)
+    lines.append(f".env: {env_path.resolve() if env_path.exists() else '（無し）'}")
+
+    from_config = config.llm.options.get("api_key")
+    raw = from_config if from_config else os.environ.get("ANTHROPIC_API_KEY")
+    source = "config.yaml の llm.options.api_key" if from_config else "環境変数 ANTHROPIC_API_KEY"
+
+    if not raw:
+        lines.append("APIキー: 未設定（SDK のプロファイル解決に任せる）")
+        return lines
+
+    lines.append(f"APIキー: {source} / {_mask(raw)} / 長さ {len(raw)}")
+    for problem in _key_problems(raw):
+        lines.append(f"  ⚠ {problem}")
+    return lines
+
+
+def _mask(key: str) -> str:
+    """キーの見分けがつく程度だけ見せる。"""
+    if len(key) <= 12:
+        return "***"
+    return f"{key[:13]}…{key[-4:]}"
+
+
+def _key_problems(key: str) -> list[str]:
+    """貼り間違いにありがちな形を指摘する。"""
+    problems = []
+    if key != key.strip():
+        problems.append("前後に空白か改行が付いている")
+    stripped = key.strip()
+    if stripped[:1] in ("'", '"') or stripped[-1:] in ("'", '"'):
+        problems.append("引用符が値の一部になっている。囲みの記号は含めないこと")
+    if not stripped.startswith(_KEY_PREFIX):
+        problems.append(f"{_KEY_PREFIX} で始まっていない。キーIDや別のトークンを貼っていないか")
+    elif len(stripped) < 40:
+        problems.append("短すぎる。貼り付けが途中で切れていないか")
+    return problems
 
 
 def cmd_chat(args: argparse.Namespace, config: Config) -> int:
