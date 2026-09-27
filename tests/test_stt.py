@@ -88,3 +88,21 @@ def test_cache_probe_reports_unknown_without_huggingface_hub(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "huggingface_hub", None)
     assert _is_cached("some/model") is None
+
+
+def test_warm_up_loads_the_model_ahead_of_the_first_utterance(fake_whisper):
+    """待受に入る前に読み込む。会話の最中に長い間が入らないように。"""
+    from jarvis.stt import FasterWhisper
+
+    stt = FasterWhisper(model="dummy/model")
+    stt.warm_up()
+    assert fake_whisper == ["dummy/model"]
+
+    stt.transcribe(Audio.silence(0.1, 16000))
+    assert fake_whisper == ["dummy/model"]  # 二重に読み込まない
+
+
+def test_warm_up_is_a_no_op_for_engines_without_heavy_setup():
+    from jarvis.stt import NullStt
+
+    NullStt().warm_up()  # 例外が出ないこと

@@ -52,6 +52,13 @@ class SpeechToText(ABC):
         """
         return None
 
+    def warm_up(self) -> None:
+        """重い初期化を先に済ませる。
+
+        待受に入る前に呼ぶ。最初の発話の最中にモデルを読み込むと、
+        会話が止まったように見えるため。
+        """
+
 
 class TextToSpeech(ABC):
     """TTS。文を音声にする。

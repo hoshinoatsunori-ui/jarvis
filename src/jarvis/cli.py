@@ -293,10 +293,17 @@ def cmd_listen(args: argparse.Namespace, config: Config) -> int:
     memory = factory.build_memory(config)
     tools = factory.build_tools(config, memory)
     tts = factory.build_tts(config.tts)
+    stt = factory.build_stt(config.stt)
+
+    # 待受に入る前に重い初期化を済ませる。最初の発話の最中に読み込むと、
+    # 聞き取れなかったのか処理中なのか、利用者から区別がつかない。
+    print("モデルを読み込んでいます…", file=sys.stderr, flush=True)
+    stt.warm_up()
+
     loop = VoiceLoop(
         wake=factory.build_wake(config.wake),
         vad=factory.build_vad(config.vad),
-        stt=factory.build_stt(config.stt),
+        stt=stt,
         conversation=Conversation(
             factory.build_agent(config.llm, tools=tools, memory=memory),
             tts,

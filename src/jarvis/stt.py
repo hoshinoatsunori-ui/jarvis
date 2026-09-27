@@ -64,6 +64,10 @@ class FasterWhisper(SpeechToText):
                 ) from exc
         return self._loaded
 
+    def warm_up(self) -> None:
+        """待受に入る前にモデルを読み込んでおく。"""
+        self.load()
+
     def check(self) -> str:
         """取得済みかどうかを、ダウンロードせずに報告する。"""
         if Path(self.model).exists():
