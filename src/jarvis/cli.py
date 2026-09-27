@@ -70,13 +70,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+def _add_global_options(parser: argparse.ArgumentParser, *, after_command: bool) -> None:
+    """全体に効くオプションを足す。
+
+    サブコマンドの前後どちらに書いても通るよう、トップレベルと各サブコマンドの
+    両方に同じものを定義する。サブコマンド側の既定を SUPPRESS にしてあるのは、
+    指定しなかったときに属性を作らせないため。既定値を持たせると、後から走る
+    サブコマンド側のパースが、前に置かれた指定を None で上書きしてしまう。
+    """
+    suppress = argparse.SUPPRESS if after_command else None
+    parser.add_argument("-c", "--config", default=suppress, help="設定ファイル (既定: ./config.yaml)")
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        default=suppress,
+        help="デバッグログを出す",
+    )
+    for stage in STAGE_OVERRIDES:
+        parser.add_argument(
+            f"--{stage}",
+            metavar="ENGINE",
+            default=suppress,
+            help=f"{stage} のエンジンを設定より優先して指定する",
+        )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jarvis", description="常時待受型の音声AIアシスタント")
     parser.add_argument("--version", action="version", version=f"jarvis {__version__}")
-    parser.add_argument("-c", "--config", help="設定ファイル (既定: ./config.yaml)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="デバッグログを出す")
-    for stage in STAGE_OVERRIDES:
-        parser.add_argument(f"--{stage}", metavar="ENGINE", help=f"{stage} のエンジンを設定より優先して指定する")
+    _add_global_options(parser, after_command=False)
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -109,6 +131,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     tools = sub.add_parser("tools", help="LLM に渡されるツールを一覧する")
     tools.set_defaults(handler=cmd_tools)
+
+    for subparser in (doctor, chat, listen, say, transcribe, devices, level, tools):
+        _add_global_options(subparser, after_command=True)
 
     return parser
 

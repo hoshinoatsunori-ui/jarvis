@@ -141,3 +141,43 @@ def test_stdio_reconfigure_failure_does_not_stop_startup(monkeypatch):
     for name in ("stdout", "stderr", "stdin"):
         monkeypatch.setattr(cli.sys, name, Stream())
     cli._force_utf8_stdio()  # 例外が漏れないこと
+
+
+# --- 全体オプションはサブコマンドの前後どちらでも通ること -------------------
+
+def test_stage_override_works_after_the_subcommand(workdir, capsys):
+    # argparse の既定では全体オプションはサブコマンドより前だけ。利用者は
+    # 後ろに書きがちなので、両方の位置を受けられること。
+    assert main(["say", "こんばんは", "--tts", "none", "--llm", "echo"]) == 0
+    assert "こんばんは" in capsys.readouterr().out
+
+
+def test_stage_override_works_before_the_subcommand(workdir, capsys):
+    assert main(["--tts", "none", "--llm", "echo", "say", "こんばんは"]) == 0
+    assert "こんばんは" in capsys.readouterr().out
+
+
+def test_options_can_be_split_across_both_positions(workdir, capsys):
+    assert main(["--llm", "echo", "say", "こんばんは", "--tts", "none"]) == 0
+    assert "こんばんは" in capsys.readouterr().out
+
+
+def test_option_after_the_subcommand_wins(workdir, capsys):
+    (workdir / "config.yaml").write_text("llm: echo\n", encoding="utf-8")
+    assert main(["--tts", "system", "say", "テスト", "--tts", "none"]) == 0
+    assert "テスト" in capsys.readouterr().out
+
+
+def test_config_path_is_accepted_after_the_subcommand(workdir, capsys):
+    path = workdir / "elsewhere.yaml"
+    path.write_text(
+        "wake: manual\nvad: energy\nstt: none\nllm: echo\n"
+        "tts:\n  engine: none\n  options:\n    prefix: '>> '\n",
+        encoding="utf-8",
+    )
+    assert main(["say", "設定から", "-c", str(path)]) == 0
+    assert ">> 設定から" in capsys.readouterr().out
+
+
+def test_verbose_is_accepted_after_the_subcommand(workdir):
+    assert main([*OFFLINE, "tools", "-v"]) == 0
