@@ -15,6 +15,17 @@ def test_unknown_option_names_the_accepted_ones():
         factory.build_tts(StageConfig("none", {"bogus": 1}))
 
 
+def test_leftover_options_from_another_engine_are_explained():
+    """engine だけ変えて options を残すのは、いちばんやりがちな間違い。"""
+    with pytest.raises(ConfigError) as exc:
+        # openwakeword 向けの項目を manual に残した状態。
+        factory.build_wake(StageConfig("manual", {"model": "hey_jarvis", "threshold": 0.5}))
+    message = str(exc.value)
+    assert "model" in message and "threshold" in message
+    assert "指定できるのは: prompt" in message
+    assert "options も入れ替える" in message
+
+
 def test_aivisspeech_defaults_to_its_own_port():
     tts = factory.build_tts(StageConfig("aivisspeech"))
     assert tts.base_url == "http://127.0.0.1:10101"

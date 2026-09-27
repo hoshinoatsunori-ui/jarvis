@@ -127,7 +127,9 @@ def _construct(target, stage: str, cfg: StageConfig, extra: dict[str, Any] | Non
     if unknown:
         raise ConfigError(
             f"{stage}.options: {cfg.engine} が受け付けない項目 {unknown}"
-            f"（指定できるのは: {', '.join(sorted(accepted))}）"
+            f"（指定できるのは: {', '.join(sorted(accepted))}）\n"
+            f"  engine を変えたときは options も入れ替えること。"
+            f"前のエンジン向けの項目が残っていないか確認する"
         )
     return target(**options)
 
