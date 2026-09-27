@@ -17,7 +17,7 @@ S2S（OpenAI Realtime / Gemini Live）ではなくカスケードを選んでい
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[llm]"                 # 最小構成: LLM だけ
 cp config.example.yaml config.yaml
-cp .env.example .env                    # APIキーを書く
+cp .env.example .env                    # APIキーを書く（起動時に自動で読まれる）
 
 # マイク不要。キーボードで対話して、プロンプトとツールの挙動を先に確かめる
 jarvis chat --tts none
@@ -84,6 +84,8 @@ tts:
 ```
 
 `${VAR}` は環境変数に展開される（`${VAR:-既定値}` も可）。APIキーを YAML に直接書かないため。
+
+APIキーは `.env` に書いておけば起動時に読み込まれる（`.env` は `.gitignore` 済み）。既に環境変数が設定されていればそちらが優先される。読み込まれたかは `jarvis -v doctor` で確認できる。
 
 > 「何もしないエンジン」の名前は `none`。YAML では `null` は文字列でなく null リテラルとして読まれるので、エンジン名には使えない。
 

@@ -55,3 +55,73 @@ def test_yaml_null_as_an_engine_name_is_caught_with_an_explanation():
     # 書きがちなので、`none` を使うよう明示する。
     with pytest.raises(ConfigError, match="none"):
         Config.from_dict({"tts": {"engine": None}})
+
+
+# --- .env の読み込み ---------------------------------------------------------
+
+def test_env_file_values_are_loaded(tmp_path, monkeypatch):
+    from jarvis.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JARVIS_SAMPLE_KEY", raising=False)
+    (tmp_path / ".env").write_text("JARVIS_SAMPLE_KEY=abc123\n", encoding="utf-8")
+
+    assert load_env_file() == ["JARVIS_SAMPLE_KEY"]
+    import os
+
+    assert os.environ["JARVIS_SAMPLE_KEY"] == "abc123"
+
+
+def test_existing_environment_wins_over_the_file(tmp_path, monkeypatch):
+    # その場で設定した値のほうが、書き置いた値より新しい意図とみなす。
+    from jarvis.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JARVIS_SAMPLE_KEY", "シェルで設定した値")
+    (tmp_path / ".env").write_text("JARVIS_SAMPLE_KEY=ファイルの値\n", encoding="utf-8")
+
+    assert load_env_file() == []
+    import os
+
+    assert os.environ["JARVIS_SAMPLE_KEY"] == "シェルで設定した値"
+
+
+def test_missing_env_file_is_not_an_error(tmp_path, monkeypatch):
+    from jarvis.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    assert load_env_file() == []
+
+
+@pytest.mark.parametrize(
+    "line, expected",
+    [
+        ("KEY=value", ("KEY", "value")),
+        ("  KEY = value  ", ("KEY", "value")),
+        ("export KEY=value", ("KEY", "value")),
+        ('KEY="quoted"', ("KEY", "quoted")),
+        ("KEY='quoted'", ("KEY", "quoted")),
+        ("KEY=", ("KEY", "")),
+        ("KEY=a=b", ("KEY", "a=b")),
+        ("# コメント", None),
+        ("", None),
+        ("   ", None),
+        ("値のない行", None),
+        ("=値だけ", None),
+    ],
+)
+def test_env_line_parsing(line, expected):
+    from jarvis.config import _parse_env_line
+
+    assert _parse_env_line(line) == expected
+
+
+def test_env_file_with_bom_is_read(tmp_path, monkeypatch):
+    # Windows のエディタは BOM 付き UTF-8 で保存することがある。
+    from jarvis.config import load_env_file
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("JARVIS_BOM_KEY", raising=False)
+    (tmp_path / ".env").write_text("JARVIS_BOM_KEY=ok\n", encoding="utf-8-sig")
+
+    assert load_env_file() == ["JARVIS_BOM_KEY"]

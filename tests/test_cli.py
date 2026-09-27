@@ -216,3 +216,17 @@ def test_doctor_offline_skips_the_api_check(workdir, capsys, monkeypatch):
 
     monkeypatch.setattr(factory, "build_agent", lambda *a, **k: BadKeyAgent())
     assert main([*OFFLINE, "doctor", "--offline"]) == 0
+
+
+def test_env_file_is_loaded_before_the_config_is_read(workdir, capsys, monkeypatch):
+    """設定の ${VAR} を .env の値で解決できること。"""
+    monkeypatch.delenv("JARVIS_CLI_PREFIX", raising=False)
+    # 末尾の空白は引用符で囲まないと落ちる（.env の一般的な挙動）。
+    (workdir / ".env").write_text('JARVIS_CLI_PREFIX=">>> "\n', encoding="utf-8")
+    (workdir / "config.yaml").write_text(
+        "wake: manual\nvad: energy\nstt: none\nllm: echo\n"
+        "tts:\n  engine: none\n  options:\n    prefix: ${JARVIS_CLI_PREFIX}\n",
+        encoding="utf-8",
+    )
+    assert main(["say", "環境変数から"]) == 0
+    assert ">>> 環境変数から" in capsys.readouterr().out

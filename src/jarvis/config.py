@@ -22,6 +22,8 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 DEFAULT_CONFIG_NAMES = ("config.yaml", "config.yml")
 
+DEFAULT_ENV_FILE = ".env"
+
 
 @dataclass
 class StageConfig:
@@ -173,3 +175,47 @@ def _replace_env(match: re.Match[str]) -> str:
         f"環境変数 {name} が未設定（設定ファイル中の ${{{name}}} を解決できない）。"
         f" `export {name}=...` するか、${{{name}:-既定値}} の形で既定値を書くこと。"
     )
+
+
+def load_env_file(path: str | Path | None = None) -> list[str]:
+    """`.env` を読んで環境変数に入れ、入れた変数名を返す。
+
+    既に設定済みの変数は上書きしない。その場で `$env:` や `export` で指定した
+    値のほうが、ファイルに書き置いた値より新しい意図だとみなす。
+
+    APIキーを毎回シェルで設定し直さずに済ませるための仕組み。とくに
+    PowerShell の `$env:` はウィンドウを閉じると消えるため、これが無いと
+    ターミナルを開き直すたびに設定し直すことになる。
+    """
+    env_path = Path(path) if path else Path(DEFAULT_ENV_FILE)
+    if not env_path.exists():
+        return []
+    loaded = []
+    for line in env_path.read_text(encoding="utf-8-sig").splitlines():
+        parsed = _parse_env_line(line)
+        if parsed is None:
+            continue
+        name, value = parsed
+        if name in os.environ:
+            continue
+        os.environ[name] = value
+        loaded.append(name)
+    return loaded
+
+
+def _parse_env_line(line: str) -> tuple[str, str] | None:
+    """`.env` の1行を (名前, 値) にする。コメント・空行・壊れた行は None。"""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if line.startswith("export "):
+        line = line[len("export "):].lstrip()
+    name, sep, value = line.partition("=")
+    name = name.strip()
+    if not sep or not name:
+        return None
+    value = value.strip()
+    # 値全体が引用符で囲まれていれば外す。中身のエスケープまでは解釈しない。
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return name, value

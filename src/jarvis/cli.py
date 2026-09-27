@@ -20,7 +20,7 @@ from typing import Any
 
 from . import __version__, factory
 from .audio import Audio, Microphone, list_input_devices, rms, suggest_threshold
-from .config import Config, StageConfig
+from .config import Config, StageConfig, load_env_file
 from .errors import ConfigError, EngineUnavailable, JarvisError
 from .pipeline import Conversation, ListenSettings, VoiceLoop
 
@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(message)s",
         stream=sys.stderr,
     )
+    loaded = load_env_file()
+    if loaded:
+        logging.getLogger("jarvis").debug(".env から読み込んだ: %s", ", ".join(loaded))
     try:
         config = _load_config(args)
     except ConfigError as exc:
