@@ -41,6 +41,8 @@ stt:
   engine: faster_whisper
   options:
     model: kotoba-tech/kotoba-whisper-v2.0-faster
+    # auto は GPU が使えればそれを選び、CUDA ライブラリが無ければ CPU に落とす。
+    # GPU を確実に使いたいなら cuda と書く（使えなければエラーになる）。
     device: auto          # auto | cpu | cuda
     compute_type: default # int8 / int8_float16 / float16 など
     language: ja

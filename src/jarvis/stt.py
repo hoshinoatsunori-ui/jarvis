@@ -8,11 +8,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .audio import Audio
 from .errors import EngineUnavailable
 from .interfaces import SpeechToText
+
+log = logging.getLogger("jarvis.stt")
 
 
 class FasterWhisper(SpeechToText):
@@ -65,8 +68,42 @@ class FasterWhisper(SpeechToText):
         return self._loaded
 
     def warm_up(self) -> None:
-        """待受に入る前にモデルを読み込んでおく。"""
+        """待受に入る前に、読み込みから推論まで一度通しておく。
+
+        device: auto は GPU を選ぶことがあるが、CUDA ライブラリが揃って
+        いないと**読み込みではなく最初の書き起こしで**落ちる。会話の最中に
+        それが起きないよう、ここで一度走らせて確かめる。auto を指定して
+        いる場合は、GPU が使えなければ CPU に落とす。
+        """
         self.load()
+        try:
+            self._probe()
+        except Exception as exc:
+            if not (self.device == "auto" and _is_gpu_problem(exc)):
+                raise _describe_failure(exc, self.device) from exc
+            log.warning("GPU を使えないため CPU に切り替える (%s)", exc)
+            self.device = "cpu"
+            self._loaded = None
+            self.load()
+            try:
+                self._probe()
+            except Exception as retry:
+                raise _describe_failure(retry, self.device) from retry
+
+    def _probe(self) -> None:
+        """短い無音を1回通して、推論経路が生きているかを確かめる。
+
+        transcribe は生成器を返すので、回さないと encode まで到達しない。
+        VAD を切ってあるのは、無音だと区間なしで encode を素通りするため。
+        """
+        segments, _info = self.load().transcribe(
+            Audio.silence(1.0, 16000).to_float32(),
+            language=self.language,
+            beam_size=1,
+            vad_filter=False,
+        )
+        for _ in segments:
+            break
 
     def check(self) -> str:
         """取得済みかどうかを、ダウンロードせずに報告する。"""
@@ -80,14 +117,18 @@ class FasterWhisper(SpeechToText):
         return f"{self.model}（取得状況は不明）"
 
     def transcribe(self, audio: Audio) -> str:
-        segments, _info = self.load().transcribe(
-            audio.to_float32(),
-            language=self.language,
-            beam_size=self.beam_size,
-            vad_filter=self.vad_filter,
-            vad_parameters={"min_silence_duration_ms": self.min_silence_duration_ms},
-        )
-        return "".join(segment.text for segment in segments).strip()
+        try:
+            segments, _info = self.load().transcribe(
+                audio.to_float32(),
+                language=self.language,
+                beam_size=self.beam_size,
+                vad_filter=self.vad_filter,
+                vad_parameters={"min_silence_duration_ms": self.min_silence_duration_ms},
+            )
+            # 生成器なので、ここで回して初めて推論が走る。例外もここで出る。
+            return "".join(segment.text for segment in segments).strip()
+        except Exception as exc:
+            raise _describe_failure(exc, self.device) from exc
 
 
 class OpenAIWhisper(SpeechToText):
@@ -144,3 +185,29 @@ def _is_cached(repo_id: str) -> bool | None:
     except Exception:
         return None
     return isinstance(found, str)
+
+
+#: CUDA まわりが揃っていないときに出てくる語。
+_GPU_MARKERS = ("cublas", "cudnn", "cuda", "libcu", "gpu")
+
+
+def _is_gpu_problem(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _GPU_MARKERS)
+
+
+def _describe_failure(exc: Exception, device: str) -> EngineUnavailable:
+    """書き起こしの失敗に、何をすれば直るかを添える。"""
+    if _is_gpu_problem(exc):
+        return EngineUnavailable(
+            "stt:faster_whisper",
+            f"GPU で実行しようとして CUDA ライブラリを読み込めない ({exc})",
+            "stt.options.device を cpu にする。GPU を使うなら NVIDIA の "
+            "cuBLAS と cuDNN を導入し、DLL が PATH から見えるようにする",
+        )
+    return EngineUnavailable(
+        "stt:faster_whisper",
+        f"書き起こしに失敗した ({exc})",
+        f"stt.options.device（現在 {device}）と compute_type を見直す。"
+        "cpu / int8 の組み合わせがもっとも確実",
+    )

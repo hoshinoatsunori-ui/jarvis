@@ -106,3 +106,80 @@ def test_warm_up_is_a_no_op_for_engines_without_heavy_setup():
     from jarvis.stt import NullStt
 
     NullStt().warm_up()  # 例外が出ないこと
+
+
+# --- GPU が使えないときの振る舞い -------------------------------------------
+
+@pytest.fixture
+def whisper_that_needs_cuda(monkeypatch):
+    """encode の時点で CUDA ライブラリが無いと分かる状況を作る。
+
+    実機で起きたのはこの形。読み込みは通り、最初の書き起こしで落ちる。
+    """
+    built = []
+
+    class WhisperModel:
+        def __init__(self, model, device=None, compute_type=None):
+            built.append(device)
+            self.device = device
+
+        def transcribe(self, *a, **k):
+            if self.device != "cpu":
+                def failing():
+                    raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+                    yield  # pragma: no cover
+
+                return failing(), None
+            return iter([types.SimpleNamespace(text="こんにちは")]), None
+
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = WhisperModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+    monkeypatch.setattr(Audio, "to_float32", lambda self: "samples")
+    return built
+
+
+def test_auto_falls_back_to_cpu_when_the_gpu_is_unusable(whisper_that_needs_cuda):
+    from jarvis.stt import FasterWhisper
+
+    stt = FasterWhisper(model="dummy/model", device="auto")
+    stt.warm_up()
+
+    assert whisper_that_needs_cuda == ["auto", "cpu"]
+    assert stt.device == "cpu"
+    assert stt.transcribe(Audio.silence(0.1, 16000)) == "こんにちは"
+
+
+def test_an_explicit_gpu_choice_is_not_silently_overridden(whisper_that_needs_cuda):
+    """cuda と書いた人は GPU を使いたい。黙って CPU にすると気づけない。"""
+    from jarvis.errors import EngineUnavailable
+    from jarvis.stt import FasterWhisper
+
+    stt = FasterWhisper(model="dummy/model", device="cuda")
+    with pytest.raises(EngineUnavailable, match="cuBLAS"):
+        stt.warm_up()
+    assert whisper_that_needs_cuda == ["cuda"]
+
+
+def test_cuda_failure_during_transcription_names_the_setting_to_change(whisper_that_needs_cuda):
+    from jarvis.errors import EngineUnavailable
+    from jarvis.stt import FasterWhisper
+
+    stt = FasterWhisper(model="dummy/model", device="cuda")
+    with pytest.raises(EngineUnavailable) as exc:
+        stt.transcribe(Audio.silence(0.1, 16000))
+    assert "stt.options.device を cpu" in str(exc.value)
+
+
+def test_an_unrelated_failure_still_points_at_the_settings(fake_whisper, monkeypatch):
+    from jarvis.errors import EngineUnavailable
+    from jarvis.stt import FasterWhisper
+
+    stt = FasterWhisper(model="dummy/model")
+
+    def boom(*a, **k):
+        raise RuntimeError("何か別の理由")
+
+    monkeypatch.setattr(stt.load(), "transcribe", boom)
+    with pytest.raises(EngineUnavailable, match="compute_type"):
+        stt.transcribe(Audio.silence(0.1, 16000))
