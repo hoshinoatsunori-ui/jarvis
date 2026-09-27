@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "常時待受型の音声AIアシスタント。ウェイクワード→VAD→STT→LLM→TTS のカスケード構成で、各段を差し替えられる。"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 dependencies = [
     "PyYAML>=6.0",
 ]

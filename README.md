@@ -174,3 +174,22 @@ src/jarvis/
 
 - [docs/architecture.html](docs/architecture.html) — 構成と機能の全体像。信号の流れ、1ターンの処理、MCP 連携、レイテンシ設計、検証状況（ブラウザで開く）
 - [docs/roadmap.md](docs/roadmap.md) — カスケードを選んだ理由と、Phase 0〜4 の進め方
+
+## ライセンス
+
+このリポジトリのコードは [MIT License](LICENSE)。
+
+ただし **各段で使う外部エンジンのライセンスは別に適用される**。このリポジトリは
+それらを同梱せず、利用者が任意で導入する形にしてあるが、導入した時点でそちらの
+条件に従うことになる。とくに注意が要るもの:
+
+| 対象 | ライセンス | 注意 |
+|---|---|---|
+| openWakeWord の同梱モデル | CC BY-NC-SA 4.0 | **非商用限定**。コード本体は Apache 2.0 |
+| Porcupine（Personal プラン） | 独自 | **非商用かつ x86_64 限定**。商用や ARM は有償プラン |
+| Style-Bert-VITS2 | AGPL v3 | 派生物の公開義務がある |
+| VOICEVOX | キャラクターごとの利用規約 | 音声ごとにクレジット表記などの条件が異なる |
+| kotoba-whisper-v2.0 | Apache 2.0 | 制約は緩い |
+
+家庭内の非商用利用ならいずれも問題にならない。商用に転用する場合は、
+ウェイクワードを microWakeWord（Apache-2.0）に替えるなどの検討が要る。
