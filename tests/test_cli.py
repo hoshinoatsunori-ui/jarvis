@@ -181,3 +181,38 @@ def test_config_path_is_accepted_after_the_subcommand(workdir, capsys):
 
 def test_verbose_is_accepted_after_the_subcommand(workdir):
     assert main([*OFFLINE, "tools", "-v"]) == 0
+
+
+def test_doctor_reports_a_bad_api_key_instead_of_crashing(workdir, capsys, monkeypatch):
+    """キーが通らないことを doctor の段階で掴めること。"""
+    from jarvis import factory
+    from jarvis.errors import EngineUnavailable
+    from jarvis.interfaces import Agent
+
+    class BadKeyAgent(Agent):
+        def respond(self, user_text):
+            yield ""
+
+        def check(self):
+            raise EngineUnavailable("llm:anthropic", "APIキーが受け付けられなかった", "キーを確認する")
+
+    monkeypatch.setattr(factory, "build_agent", lambda *a, **k: BadKeyAgent())
+    assert main([*OFFLINE, "doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "NG" in out and "APIキー" in out
+
+
+def test_doctor_offline_skips_the_api_check(workdir, capsys, monkeypatch):
+    from jarvis import factory
+    from jarvis.errors import EngineUnavailable
+    from jarvis.interfaces import Agent
+
+    class BadKeyAgent(Agent):
+        def respond(self, user_text):
+            yield ""
+
+        def check(self):
+            raise EngineUnavailable("llm:anthropic", "呼ばれてはいけない", "")
+
+    monkeypatch.setattr(factory, "build_agent", lambda *a, **k: BadKeyAgent())
+    assert main([*OFFLINE, "doctor", "--offline"]) == 0

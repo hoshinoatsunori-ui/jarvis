@@ -76,6 +76,14 @@ class Agent(ABC):
     def reset(self) -> None:
         """会話履歴を捨てる。"""
 
+    def check(self) -> str | None:
+        """実際に使える状態かを確かめ、確認できた内容を一言で返す。
+
+        使えない場合は EngineUnavailable を投げること。外部に問い合わせない
+        実装は None を返せばよい。`jarvis doctor` がこれを呼ぶ。
+        """
+        return None
+
     @staticmethod
     def join(chunks: Iterable[str]) -> str:
         return "".join(chunks)

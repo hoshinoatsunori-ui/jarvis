@@ -10,12 +10,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterator
 
-from .errors import EngineUnavailable
+from .errors import EngineUnavailable, TurnFailed
 from .interfaces import Agent
 from .memory import Memory
 from .tools import ToolRegistry
+
+log = logging.getLogger("jarvis.llm")
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -66,7 +69,14 @@ class AnthropicAgent(Agent):
     def respond(self, user_text: str) -> Iterator[str]:
         self.messages.append({"role": "user", "content": user_text})
         for _ in range(self.max_tool_rounds):
-            final = yield from self._stream_turn()
+            try:
+                final = yield from self._stream_turn()
+            except TurnFailed as exc:
+                # 設定の問題ではないので、ループは落とさず声で伝えて次の発話を待つ。
+                log.warning("応答を取得できなかった: %s", exc)
+                yield str(exc)
+                self._trim()
+                return
             if final.stop_reason == "refusal":
                 yield "その依頼にはお答えできません。"
                 break
@@ -83,10 +93,26 @@ class AnthropicAgent(Agent):
         """1ターン分をストリーミングし、テキスト片を yield して最終メッセージを返す。"""
         params = self._request_params()
         create = self._client.beta.messages.stream if self.fallbacks else self._client.messages.stream
-        with create(**params) as stream:
-            for text in stream.text_stream:
-                yield text
-            return stream.get_final_message()
+        try:
+            with create(**params) as stream:
+                for text in stream.text_stream:
+                    yield text
+                return stream.get_final_message()
+        except Exception as exc:
+            # SDK の例外をそのまま上げると、常時待受がトレースバックで落ちる。
+            raise translate_api_error(exc) from exc
+
+    def check(self) -> str:
+        """設定が実際に使えるかを API に問い合わせて確かめる。
+
+        メッセージを生成せずモデル情報を引くだけなので、トークンを消費しない。
+        `jarvis doctor` がキーの誤りをここで捕まえる。
+        """
+        try:
+            model = self._client.models.retrieve(self.model)
+        except Exception as exc:
+            raise translate_api_error(exc) from exc
+        return f"{getattr(model, 'id', self.model)} に接続できた"
 
     def _request_params(self) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -189,3 +215,39 @@ def _anthropic_client(api_key: str | None, timeout: float):
             f"Anthropic クライアントを作れない ({exc})",
             "ANTHROPIC_API_KEY を設定するか `ant auth login` する",
         ) from exc
+
+
+def translate_api_error(exc: Exception) -> Exception:
+    """SDK の例外を、Jarvis 側の「止めるべきか続けられるか」に翻訳する。
+
+    401/403/404 は設定の誤りなので止める（キーを直すまで何度やっても同じ）。
+    混雑・一時障害・ネットワーク断は、そのターンだけ諦めて待受に戻る。
+    """
+    try:
+        import anthropic  # noqa: PLC0415
+    except ImportError:
+        return exc
+
+    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return EngineUnavailable(
+            "llm:anthropic",
+            f"APIキーが受け付けられなかった (HTTP {exc.status_code})",
+            "ANTHROPIC_API_KEY を確認する。PowerShell の $env: はそのウィンドウ限り"
+            "なので、ターミナルを開き直したら設定し直すこと。"
+            "恒久的に設定するなら setx ANTHROPIC_API_KEY \"sk-ant-...\" のあと"
+            "ターミナルを開き直す",
+        )
+    if isinstance(exc, anthropic.NotFoundError):
+        return EngineUnavailable(
+            "llm:anthropic",
+            f"モデルが見つからない ({exc.message})",
+            "llm.options.model の綴りと、そのモデルが組織で使えるかを確認する",
+        )
+    if isinstance(exc, anthropic.RateLimitError):
+        return TurnFailed("混み合っているようです。少し待ってからもう一度お願いします。")
+    if isinstance(exc, anthropic.APIConnectionError):
+        return TurnFailed("ネットワークに繋がりませんでした。")
+    if isinstance(exc, anthropic.APIStatusError):
+        log.error("API がエラーを返した: HTTP %s %s", exc.status_code, exc.message)
+        return TurnFailed("応答を取得できませんでした。")
+    return exc

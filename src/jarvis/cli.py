@@ -103,6 +103,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="各段が動く状態かを確認する")
+    doctor.add_argument(
+        "--offline", action="store_true",
+        help="外部への問い合わせを省く（APIキーの有効性は確認されなくなる）",
+    )
     doctor.set_defaults(handler=cmd_doctor)
 
     chat = sub.add_parser("chat", help="キーボードで対話する")
@@ -152,7 +156,6 @@ def _load_config(args: argparse.Namespace) -> Config:
 
 
 def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
-    del args
     print(f"設定: {config.source or '（既定値。config.yaml が見つからない）'}\n")
     memory = factory.build_memory(config)
     checks: list[tuple[str, Any]] = [
@@ -172,15 +175,20 @@ def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
     for label, build in checks:
         try:
             result = build()
+            detail = ""
+            if label == "tools":
+                detail = f" ({len(result)}個: {', '.join(result.names()) or 'なし'})"
+            elif label.startswith("llm") and not args.offline:
+                # 組み立てられても、キーが通るとは限らない。ここで実際に問い合わせる。
+                confirmed = result.check()
+                if confirmed:
+                    detail = f" ({confirmed})"
         except (EngineUnavailable, ConfigError) as exc:
             failures += 1
             print(f"  NG  {label}")
             for line in str(exc).splitlines():
                 print(f"      {line}")
         else:
-            detail = ""
-            if label == "tools":
-                detail = f" ({len(result)}個: {', '.join(result.names()) or 'なし'})"
             print(f"  OK  {label}{detail}")
     print()
     if failures:

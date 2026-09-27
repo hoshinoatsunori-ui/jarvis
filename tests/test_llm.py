@@ -218,3 +218,137 @@ def test_fallbacks_flag_selects_the_endpoint(fallbacks):
     list(agent.respond("やあ"))
     params = agent._client.messages.calls[0]
     assert ("fallbacks" in params) is fallbacks
+
+
+# --- API の失敗を「止めるべきか続けられるか」に振り分ける ---------------------
+
+class FakeApiError(Exception):
+    """anthropic の例外を模す。status_code と message を持つ点だけが要る。"""
+
+    def __init__(self, status_code=500, message="boom"):
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def install_fake_anthropic(monkeypatch):
+    """translate_api_error が isinstance で見る例外クラス群を差し替える。"""
+    import sys
+    import types
+
+    mod = types.ModuleType("anthropic")
+    for name in (
+        "AuthenticationError", "PermissionDeniedError", "NotFoundError",
+        "RateLimitError", "APIConnectionError", "APIStatusError",
+    ):
+        setattr(mod, name, type(name, (FakeApiError,), {}))
+    monkeypatch.setitem(sys.modules, "anthropic", mod)
+    return mod
+
+
+def _make_every_call_fail(agent, error):
+    """このエージェントの API 呼び出しが必ず `error` で失敗するようにする。"""
+
+    class FailingMessages:
+        calls: list = []
+
+        def stream(self, **params):
+            raise error
+
+    messages = FailingMessages()
+    agent._client.messages = messages
+    agent._client.beta = type("Beta", (), {"messages": messages})()
+
+
+def test_bad_api_key_stops_with_an_actionable_message(monkeypatch):
+    from jarvis.errors import EngineUnavailable
+    from jarvis.llm import translate_api_error
+
+    api = install_fake_anthropic(monkeypatch)
+    translated = translate_api_error(api.AuthenticationError(401, "API key is invalid."))
+    assert isinstance(translated, EngineUnavailable)
+    assert "ANTHROPIC_API_KEY" in str(translated)
+
+
+def test_unknown_model_stops_and_points_at_the_setting(monkeypatch):
+    from jarvis.errors import EngineUnavailable
+    from jarvis.llm import translate_api_error
+
+    api = install_fake_anthropic(monkeypatch)
+    translated = translate_api_error(api.NotFoundError(404, "model not found"))
+    assert isinstance(translated, EngineUnavailable)
+    assert "llm.options.model" in str(translated)
+
+
+@pytest.mark.parametrize("name", ["RateLimitError", "APIConnectionError", "APIStatusError"])
+def test_transient_failures_do_not_stop_the_loop(monkeypatch, name):
+    from jarvis.errors import TurnFailed
+    from jarvis.llm import translate_api_error
+
+    api = install_fake_anthropic(monkeypatch)
+    translated = translate_api_error(getattr(api, name)(429, "slow down"))
+    assert isinstance(translated, TurnFailed)
+
+
+def test_unrelated_exceptions_pass_through(monkeypatch):
+    from jarvis.llm import translate_api_error
+
+    install_fake_anthropic(monkeypatch)
+    original = ValueError("これは API の失敗ではない")
+    assert translate_api_error(original) is original
+
+
+def test_transient_failure_is_spoken_and_the_agent_stays_usable(monkeypatch):
+    """常時待受の途中で混雑しても、会話ごと落ちないこと。"""
+    api = install_fake_anthropic(monkeypatch)
+
+    agent = make_agent([])
+    _make_every_call_fail(agent, api.RateLimitError(429, "rate limited"))
+
+    spoken = "".join(agent.respond("こんにちは"))
+    assert "混み合って" in spoken
+    # 次の発話を受け付けられる状態のままであること。
+    assert agent.messages and agent.messages[0]["content"] == "こんにちは"
+
+
+def test_bad_key_propagates_out_of_respond(monkeypatch):
+    from jarvis.errors import EngineUnavailable
+
+    api = install_fake_anthropic(monkeypatch)
+
+    agent = make_agent([])
+    _make_every_call_fail(agent, api.AuthenticationError(401, "API key is invalid."))
+
+    with pytest.raises(EngineUnavailable):
+        list(agent.respond("こんにちは"))
+
+
+def test_check_confirms_the_key_without_generating_tokens(monkeypatch):
+    agent = make_agent([FakeMessage([Block("text", "ok")])])
+    calls = []
+
+    class Models:
+        def retrieve(self, model):
+            calls.append(model)
+            return type("M", (), {"id": model})()
+
+    agent._client.models = Models()
+    assert "claude-opus-5" in agent.check()
+    assert calls == ["claude-opus-5"]
+    # メッセージ API は一度も呼ばれていないこと。
+    assert agent._client.messages.calls == []
+
+
+def test_check_reports_a_bad_key_as_engine_unavailable(monkeypatch):
+    from jarvis.errors import EngineUnavailable
+
+    api = install_fake_anthropic(monkeypatch)
+    agent = make_agent([FakeMessage([Block("text", "ok")])])
+
+    class Models:
+        def retrieve(self, model):
+            raise api.AuthenticationError(401, "API key is invalid.")
+
+    agent._client.models = Models()
+    with pytest.raises(EngineUnavailable, match="ANTHROPIC_API_KEY"):
+        agent.check()
