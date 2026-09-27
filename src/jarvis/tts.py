@@ -46,6 +46,20 @@ class VoicevoxTts(TextToSpeech):
             query["speedScale"] = self.speed_scale
         return self._post_raw("/synthesis", {"speaker": self.speaker}, json.dumps(query).encode("utf-8"))
 
+    def check(self) -> str:
+        """エンジンが起動しているかを確かめる。合成はしない。"""
+        try:
+            with urllib.request.urlopen(f"{self.base_url}/version", timeout=self.timeout) as resp:
+                version = resp.read().decode("utf-8", "replace").strip().strip('"')
+        except urllib.error.URLError as exc:
+            raise EngineUnavailable(
+                "tts:voicevox",
+                f"{self.base_url} に繋がらない ({exc})",
+                "VOICEVOX(既定 50021) か AivisSpeech(既定 10101) を起動し、"
+                "tts.options.base_url を合わせる",
+            ) from exc
+        return f"{self.base_url} が応答 (version {version})"
+
     def _url(self, path: str, params: dict) -> str:
         return f"{self.base_url}{path}?{urllib.parse.urlencode(params)}"
 

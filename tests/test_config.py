@@ -125,3 +125,19 @@ def test_env_file_with_bom_is_read(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text("JARVIS_BOM_KEY=ok\n", encoding="utf-8-sig")
 
     assert load_env_file() == ["JARVIS_BOM_KEY"]
+
+
+def test_verbose_keeps_third_party_logging_quiet_by_default(monkeypatch, tmp_path):
+    """既定で httpx や huggingface_hub の INFO を出さないこと。
+
+    根を INFO にすると1リクエストごとに行が出て、こちらの出力が埋もれる。
+    """
+    import logging
+
+    from jarvis.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    main(["--wake", "manual", "--vad", "energy", "--stt", "none",
+          "--llm", "echo", "--tts", "none", "doctor", "--offline"])
+    assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger("jarvis").level == logging.INFO

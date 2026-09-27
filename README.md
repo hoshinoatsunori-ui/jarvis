@@ -26,7 +26,7 @@ jarvis chat --tts none
 jarvis doctor
 ```
 
-`jarvis doctor` は各段を実際に組み立てて、足りないものと入れ方を出す。
+`jarvis doctor` は各段を実際に組み立て、さらに「本当に使えるか」まで見る。APIキーが通るか、STT モデルが取得済みか、TTS エンジンが起動しているか。モデルの取得はここでは起こさない（初回の書き起こしまで遅らせてある）。`--offline` で外部への問い合わせを省ける。
 
 ```
   OK  wake   [manual]

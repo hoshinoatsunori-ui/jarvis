@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .audio import Audio
 from .errors import EngineUnavailable
 from .interfaces import SpeechToText
@@ -26,29 +28,55 @@ class FasterWhisper(SpeechToText):
         vad_filter: bool = True,
         min_silence_duration_ms: int = 500,
     ) -> None:
+        self.model = model
+        self.device = device
+        self.compute_type = compute_type
         self.language = language
         self.beam_size = beam_size
         self.vad_filter = vad_filter
         self.min_silence_duration_ms = min_silence_duration_ms
+        self._loaded = None
+        # ここでは依存の有無だけ見る。モデルの取得は初回の書き起こしまで遅らせる。
+        # 構築しただけで 1.5GB 取りに行くと、`jarvis doctor` が診断にならない。
         try:
-            from faster_whisper import WhisperModel  # noqa: PLC0415
+            import faster_whisper  # noqa: F401, PLC0415
         except ImportError as exc:
             raise EngineUnavailable(
                 "stt:faster_whisper",
                 "faster-whisper が入っていない",
                 'pip install "jarvis[stt-local]"',
             ) from exc
-        try:
-            self._model = WhisperModel(model, device=device, compute_type=compute_type)
-        except Exception as exc:
-            raise EngineUnavailable(
-                "stt:faster_whisper",
-                f"モデル {model!r} を読み込めない ({exc})",
-                "初回はモデルのダウンロードが走る。ネットワークとディスク容量を確認する",
-            ) from exc
+
+    def load(self):
+        """モデルを読み込む。未取得なら、ここで初めてダウンロードが走る。"""
+        if self._loaded is None:
+            from faster_whisper import WhisperModel  # noqa: PLC0415
+
+            try:
+                self._loaded = WhisperModel(
+                    self.model, device=self.device, compute_type=self.compute_type
+                )
+            except Exception as exc:
+                raise EngineUnavailable(
+                    "stt:faster_whisper",
+                    f"モデル {self.model!r} を読み込めない ({exc})",
+                    "初回はモデルの取得が走る。ネットワークとディスク容量を確認する",
+                ) from exc
+        return self._loaded
+
+    def check(self) -> str:
+        """取得済みかどうかを、ダウンロードせずに報告する。"""
+        if Path(self.model).exists():
+            return f"ローカルのモデル {self.model}"
+        cached = _is_cached(self.model)
+        if cached is True:
+            return f"{self.model} 取得済み"
+        if cached is False:
+            return f"{self.model} 未取得。初回の書き起こしで取得する"
+        return f"{self.model}（取得状況は不明）"
 
     def transcribe(self, audio: Audio) -> str:
-        segments, _info = self._model.transcribe(
+        segments, _info = self.load().transcribe(
             audio.to_float32(),
             language=self.language,
             beam_size=self.beam_size,
@@ -96,3 +124,19 @@ def openai_client(api_key: str | None, engine: str):
         raise EngineUnavailable(
             engine, f"OpenAI クライアントを作れない ({exc})", "OPENAI_API_KEY を設定する"
         ) from exc
+
+
+def _is_cached(repo_id: str) -> bool | None:
+    """Hugging Face のキャッシュに既にあるか。判定できなければ None。
+
+    ここでダウンロードを起こしてはいけない。取得状況を見るだけ。
+    """
+    try:
+        from huggingface_hub import try_to_load_from_cache  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        found = try_to_load_from_cache(repo_id=repo_id, filename="model.bin")
+    except Exception:
+        return None
+    return isinstance(found, str)

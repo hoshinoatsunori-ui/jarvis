@@ -50,11 +50,14 @@ def main(argv: list[str] | None = None) -> int:
     _force_utf8_stdio()
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # 根を WARNING に据えるのが要点。INFO にすると httpx や huggingface_hub が
+    # 1リクエストごとに行を吐き、こちらの出力が埋もれる。
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.INFO if args.verbose else logging.WARNING,
         format="%(message)s",
         stream=sys.stderr,
     )
+    logging.getLogger("jarvis").setLevel(logging.DEBUG if args.verbose else logging.INFO)
     loaded = load_env_file()
     if loaded:
         logging.getLogger("jarvis").debug(".env から読み込んだ: %s", ", ".join(loaded))
@@ -108,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="各段が動く状態かを確認する")
     doctor.add_argument(
         "--offline", action="store_true",
-        help="外部への問い合わせを省く（APIキーの有効性は確認されなくなる）",
+        help="外部への問い合わせを省く（APIキーや TTS エンジンの疎通は確認されなくなる）",
     )
     doctor.set_defaults(handler=cmd_doctor)
 
@@ -181,9 +184,12 @@ def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
             detail = ""
             if label == "tools":
                 detail = f" ({len(result)}個: {', '.join(result.names()) or 'なし'})"
-            elif label.startswith("llm") and not args.offline:
-                # 組み立てられても、キーが通るとは限らない。ここで実際に問い合わせる。
-                confirmed = result.check()
+            elif not args.offline:
+                # 組み立てられても、実際に使えるとは限らない。APIキーが通るか、
+                # モデルが取得済みか、TTS エンジンが起動しているかをここで見る。
+                # check() を持たない段（wake/vad）は組み立てられた時点で確認済み。
+                check = getattr(result, "check", None)
+                confirmed = check() if check is not None else None
                 if confirmed:
                     detail = f" ({confirmed})"
         except (EngineUnavailable, ConfigError) as exc:

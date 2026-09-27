@@ -230,3 +230,28 @@ def test_env_file_is_loaded_before_the_config_is_read(workdir, capsys, monkeypat
     )
     assert main(["say", "環境変数から"]) == 0
     assert ">>> 環境変数から" in capsys.readouterr().out
+
+
+def test_doctor_reports_an_unreachable_tts_engine(workdir, capsys):
+    """組み立てられても、VOICEVOX が起動していなければ使えない。"""
+    code = main([
+        "--wake", "manual", "--vad", "energy", "--stt", "none", "--llm", "echo",
+        "--tts", "voicevox", "doctor",
+    ])
+    out = capsys.readouterr().out
+    if code == 0:
+        pytest.skip("この環境では 50021 で何かが応答している")
+    assert "NG" in out and "50021" in out
+
+
+def test_doctor_offline_does_not_touch_the_network(workdir, capsys):
+    assert main([
+        "--wake", "manual", "--vad", "energy", "--stt", "none", "--llm", "echo",
+        "--tts", "voicevox", "doctor", "--offline",
+    ]) == 0
+
+
+def test_doctor_tolerates_stages_without_a_check(workdir, capsys):
+    # wake と vad は check() を持たない。呼び出し側が落ちないこと。
+    assert main([*OFFLINE, "doctor"]) == 0
+    assert "wake" in capsys.readouterr().out

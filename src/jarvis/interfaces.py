@@ -45,6 +45,13 @@ class SpeechToText(ABC):
     def transcribe(self, audio: Audio) -> str:
         ...
 
+    def check(self) -> str | None:
+        """実際に使える状態かを確かめ、確認できた内容を一言で返す。
+
+        使えない場合は EngineUnavailable を投げること。`jarvis doctor` が呼ぶ。
+        """
+        return None
+
 
 class TextToSpeech(ABC):
     """TTS。文を音声にする。
@@ -55,6 +62,13 @@ class TextToSpeech(ABC):
 
     #: 音声の代わりに文字を出す実装は True。呼び出し側が画面出力を二重にしないために使う。
     displays_text: bool = False
+
+    def check(self) -> str | None:
+        """実際に使える状態かを確かめ、確認できた内容を一言で返す。
+
+        使えない場合は EngineUnavailable を投げること。`jarvis doctor` が呼ぶ。
+        """
+        return None
 
     @abstractmethod
     def synthesize(self, text: str) -> bytes:
