@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "常時待受型の音声AIアシスタント。ウェイクワード→VAD→STT→LLM→TTS のカスケード構成で、各段を差し替えられる。"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# --- LLM（頭脳） ---
+llm = ["anthropic>=1.0"]
+# --- 音声入出力（マイク／スピーカー） ---
+audio = ["sounddevice>=0.4.6", "numpy>=1.24"]
+# --- ローカルSTT（日本語は kotoba-whisper 推奨） ---
+stt-local = ["faster-whisper>=1.0", "numpy>=1.24"]
+# --- ウェイクワード ---
+wake-oww = ["openwakeword>=0.6", "numpy>=1.24"]
+wake-porcupine = ["pvporcupine>=3.0"]
+# --- VAD ---
+vad-silero = ["onnxruntime>=1.16", "numpy>=1.24"]
+# --- クラウドSTT/TTS のフォールバック ---
+openai = ["openai>=1.30"]
+# --- MCPツール連携 ---
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jarvis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
