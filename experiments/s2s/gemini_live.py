@@ -102,8 +102,10 @@ async def api_to_speaker(
 ) -> None:
     """Gemini Live からの音声/テキストを受け取り、音声は即スピーカーに流す。
 
-    応答の文字起こし（input_transcription / output_transcription）が設定で
-    有効化されていれば、ついでにログに出す。
+    文字起こしは単語ごとに partial で届くので、ターン終端まで溜めて
+    1行で吐く。モデルが model_turn.parts.text に英語チェイン思考を
+    混ぜてくることがあるが、字幕としての実体は output_transcription
+    のほうなので、ここでは part.text は無視する。
     """
     play_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -128,6 +130,19 @@ async def api_to_speaker(
     def enqueue(data: bytes) -> None:
         loop.call_soon_threadsafe(play_queue.put_nowait, data)
 
+    user_buf: list[str] = []
+    model_buf: list[str] = []
+
+    def flush_user() -> None:
+        if user_buf:
+            log.info("認識: %s", "".join(user_buf).strip())
+            user_buf.clear()
+
+    def flush_model(label: str = "応答") -> None:
+        if model_buf:
+            log.info("%s: %s", label, "".join(model_buf).strip())
+            model_buf.clear()
+
     with sd.RawOutputStream(
         samplerate=SPEAKER_SAMPLE_RATE,
         dtype="int16",
@@ -145,31 +160,34 @@ async def api_to_speaker(
                     if server is None:
                         continue
 
-                    # ユーザー発話の検出 → 再生中の応答を止める (barge-in)
+                    # ユーザー発話検出 → 再生中の応答を止める (barge-in)
                     if getattr(server, "interrupted", False):
-                        log.info("barge-in: 応答を打ち切り")
                         _drain(play_queue)
+                        flush_model("応答(barge-in で中断)")
+
+                    user_tx = getattr(server, "input_transcription", None)
+                    if user_tx is not None and getattr(user_tx, "text", None):
+                        user_buf.append(user_tx.text)
 
                     model_turn = getattr(server, "model_turn", None)
                     if model_turn is not None:
+                        # 応答が始まった = ユーザーのターンは終わった
+                        flush_user()
                         for part in getattr(model_turn, "parts", []) or []:
                             inline = getattr(part, "inline_data", None)
                             if inline is not None and inline.data:
                                 enqueue(inline.data)
-                            text = getattr(part, "text", None)
-                            if text:
-                                log.info("応答文字起こし: %s", text)
-
-                    user_tx = getattr(server, "input_transcription", None)
-                    if user_tx is not None and getattr(user_tx, "text", None):
-                        log.info("認識: %s", user_tx.text)
+                            # part.text は native-audio モデルが
+                            # 英語チェイン思考を漏らしてくる窓口。
+                            # 字幕は output_transcription を使う
 
                     output_tx = getattr(server, "output_transcription", None)
                     if output_tx is not None and getattr(output_tx, "text", None):
-                        log.info("応答(字幕): %s", output_tx.text)
+                        model_buf.append(output_tx.text)
 
                     if getattr(server, "turn_complete", False):
-                        log.debug("ターン終了")
+                        flush_user()
+                        flush_model()
             except Exception:  # noqa: BLE001
                 if stop.is_set():
                     return
