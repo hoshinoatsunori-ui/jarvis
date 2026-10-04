@@ -29,6 +29,8 @@ vad-silero = ["onnxruntime>=1.16", "numpy>=1.24"]
 openai = ["openai>=1.30"]
 # --- MCPツール連携 ---
 mcp = ["mcp>=1.2"]
+# --- 寄り道: S2S (Phase 1 検証用。カスケードとは排他) ---
+s2s-gemini = ["google-genai>=1.0", "sounddevice>=0.4.6"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
