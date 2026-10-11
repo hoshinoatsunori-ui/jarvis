@@ -19,12 +19,26 @@ class WakeWordEngine(ABC):
     frame_samples: int = 480
     sample_rate: int = 16000
 
+    #: 直近の `accept` での確信度 (0.0..1.0)。連続値を出せない実装は None のまま。
+    #: しきい値を実測で決めるために `jarvis wake-test` が読む。
+    last_score: float | None = None
+
     @abstractmethod
     def accept(self, frame: bytes) -> bool:
         """フレームを1つ食わせ、ウェイクワードを検出したら True。"""
 
     def reset(self) -> None:
         """発話処理が終わった後に内部状態を戻す。"""
+
+    def check(self) -> str | None:
+        """使える状態かを確かめ、確認できた内容を一言で返す。
+
+        使えない場合は EngineUnavailable を投げること。`jarvis doctor` が呼ぶ。
+        """
+        return None
+
+    def warm_up(self) -> None:
+        """重い初期化を先に済ませる。待受に入る前に呼ぶ。"""
 
 
 class VoiceActivityDetector(ABC):

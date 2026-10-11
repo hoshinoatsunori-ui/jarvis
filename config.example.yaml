@@ -23,12 +23,19 @@ audio:
 wake:
   engine: openwakeword
   options:
+    # 配布モデル: alexa / hey_mycroft / hey_jarvis / hey_rhasspy / timer / weather
+    # 自分で学習したモデルのファイルパスも指定できる。
     model: hey_jarvis
+    # 声と部屋で変わる。`jarvis wake-test` で実測して決めること。
     threshold: 0.5
+    # tflite のほうが軽いが、Windows 向けの wheel が無いことがある。
+    inference_framework: onnx
 
 # --- VAD --------------------------------------------------------------------
 # energy : 依存ゼロ。静かな部屋向け。threshold は環境ごとに実測して決める
 # silero : ML ベース。雑音・遠距離集音に強い（onnxruntime とモデルファイルが要る）
+#          openWakeWord を入れると silero_vad.onnx も一緒に落ちてくるので、
+#          そのパスを model_path に指定すれば別途取得しなくてよい
 vad:
   engine: energy
   options:

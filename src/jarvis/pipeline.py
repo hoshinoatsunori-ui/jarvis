@@ -64,6 +64,46 @@ class Conversation:
         return reply
 
 
+@dataclass
+class WakeProbe:
+    """ウェイクワードの反応を測った結果。"""
+
+    frames: int
+    detections: int
+    max_score: float | None
+
+    def advice(self, threshold: float) -> str:
+        """しきい値をどう動かすべきかを一言で返す。"""
+        if self.max_score is None:
+            return "このエンジンは確信度を出さないので、しきい値の調整はできない"
+        if self.detections == 0:
+            if self.max_score < 0.05:
+                return "反応していない。マイクの入力とウェイクワードの発音を確認する"
+            return f"惜しい。しきい値を {max(0.05, round(self.max_score - 0.05, 2))} まで下げると拾える"
+        return f"検出できている。誤検出が多いなら {min(0.95, round(threshold + 0.1, 2))} まで上げる"
+
+
+def probe_wake_word(wake, frames, on_score=None) -> WakeProbe:
+    """フレーム列を検出器に流し、確信度と検出回数を数える。
+
+    `jarvis wake-test` の中身。マイクの代わりに任意のフレーム列を渡せるよう、
+    表示とは分けてある。
+    """
+    count = detections = 0
+    best: float | None = None
+    for frame in frames:
+        count += 1
+        if wake.accept(frame):
+            detections += 1
+            wake.reset()
+        score = wake.last_score
+        if score is not None:
+            best = score if best is None else max(best, score)
+        if on_score is not None:
+            on_score(score, detections)
+    return WakeProbe(frames=count, detections=detections, max_score=best)
+
+
 class VoiceLoop:
     """常時待受のループ。"""
 

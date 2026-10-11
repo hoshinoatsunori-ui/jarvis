@@ -5,6 +5,7 @@
     jarvis listen        常時待受で音声対話する
     jarvis devices       入力デバイスを一覧する
     jarvis level         マイクの入力レベルを測り、VAD のしきい値を提案する
+    jarvis wake-test     ウェイクワードの反応を測り、しきい値の目安を出す
     jarvis say TEXT      TTS だけを試す
     jarvis transcribe F  STT だけを試す
     jarvis tools         LLM に渡されるツールを一覧する
@@ -24,7 +25,7 @@ from . import __version__, factory
 from .audio import Audio, Microphone, list_input_devices, rms, suggest_threshold
 from .config import DEFAULT_ENV_FILE, Config, StageConfig, load_env_file
 from .errors import ConfigError, EngineUnavailable, JarvisError
-from .pipeline import Conversation, ListenSettings, VoiceLoop
+from .pipeline import Conversation, ListenSettings, VoiceLoop, probe_wake_word
 
 STAGE_OVERRIDES = ("wake", "vad", "stt", "llm", "tts")
 
@@ -141,10 +142,14 @@ def _build_parser() -> argparse.ArgumentParser:
     level.add_argument("--seconds", type=float, default=8.0, help="測定時間")
     level.set_defaults(handler=cmd_level)
 
+    wake_test = sub.add_parser("wake-test", help="ウェイクワードの反応を測る")
+    wake_test.add_argument("--seconds", type=float, default=20.0, help="測定時間")
+    wake_test.set_defaults(handler=cmd_wake_test)
+
     tools = sub.add_parser("tools", help="LLM に渡されるツールを一覧する")
     tools.set_defaults(handler=cmd_tools)
 
-    for subparser in (doctor, chat, listen, say, transcribe, devices, level, tools):
+    for subparser in (doctor, chat, listen, say, transcribe, devices, level, wake_test, tools):
         _add_global_options(subparser, after_command=True)
 
     return parser
@@ -297,11 +302,13 @@ def cmd_listen(args: argparse.Namespace, config: Config) -> int:
 
     # 待受に入る前に重い初期化を済ませる。最初の発話の最中に読み込むと、
     # 聞き取れなかったのか処理中なのか、利用者から区別がつかない。
+    wake = factory.build_wake(config.wake)
     print("モデルを読み込んでいます…", file=sys.stderr, flush=True)
+    wake.warm_up()
     stt.warm_up()
 
     loop = VoiceLoop(
-        wake=factory.build_wake(config.wake),
+        wake=wake,
         vad=factory.build_vad(config.vad),
         stt=stt,
         conversation=Conversation(
@@ -378,6 +385,55 @@ def _pct(levels: list[float], fraction: float) -> float:
     from .audio import percentile
 
     return percentile(levels, fraction)
+
+
+def cmd_wake_test(args: argparse.Namespace, config: Config) -> int:
+    """ウェイクワードの確信度を実測して、しきい値の目安を出す。
+
+    しきい値は声や部屋で変わる。既定のままだと、呼んでも起きないか、
+    物音で勝手に起きるかのどちらかになりやすい。
+    """
+    wake = factory.build_wake(config.wake)
+    threshold = float(config.wake.options.get("threshold", 0.5))
+    print("ウェイクワードのモデルを読み込んでいます…", file=sys.stderr, flush=True)
+    wake.warm_up()
+
+    sample_rate, frame_ms = config.audio.sample_rate, config.audio.frame_ms
+    frame_bytes = wake.frame_samples * 2
+    total_frames = int(args.seconds * 1000 / frame_ms)
+    print(
+        f"{args.seconds:.0f}秒間測ります。ふだんの声でウェイクワードを数回言ってみてください。\n",
+        file=sys.stderr,
+    )
+
+    def show(score: float | None, detections: int) -> None:
+        bar = "#" * min(40, int((score or 0.0) * 40))
+        print(f"\r{score if score is None else f'{score:.4f}'} |{bar:<40}| 検出 {detections}",
+              end="", file=sys.stderr, flush=True)
+
+    with Microphone(sample_rate, frame_ms, config.audio.input_device) as mic:
+        result = probe_wake_word(wake, _wake_frames(mic, frame_bytes, total_frames), on_score=show)
+    print("\n", file=sys.stderr)
+
+    print(f"最大スコア : {result.max_score if result.max_score is None else f'{result.max_score:.4f}'}")
+    print(f"検出回数   : {result.detections}")
+    print(f"しきい値   : {threshold}（wake.options.threshold）")
+    print(f"\n{result.advice(threshold)}")
+    return 0
+
+
+def _wake_frames(mic, frame_bytes: int, limit: int):
+    """マイクのフレームを、検出器が要求する長さに詰め替える。"""
+    buffer = b""
+    produced = 0
+    for frame in mic.frames():
+        buffer += frame
+        while len(buffer) >= frame_bytes:
+            chunk, buffer = buffer[:frame_bytes], buffer[frame_bytes:]
+            yield chunk
+            produced += 1
+        if produced >= limit:
+            return
 
 
 def cmd_tools(args: argparse.Namespace, config: Config) -> int:

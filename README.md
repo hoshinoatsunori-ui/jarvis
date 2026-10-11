@@ -44,7 +44,7 @@ jarvis doctor
 | 段 | 既定 | 入れるもの |
 |---|---|---|
 | マイク/スピーカー | – | `pip install -e ".[audio]"`（Linux は `apt install libportaudio2`） |
-| ウェイクワード | openwakeword | `pip install -e ".[wake-oww]"` → `python -c "import openwakeword; openwakeword.utils.download_models()"` |
+| ウェイクワード | openwakeword | `pip install -e ".[wake-oww]"`（モデルは待受の開始時に自動取得。数 MB） |
 | VAD | energy | 追加なし（silero を使うなら `".[vad-silero]"` と `silero_vad.onnx`） |
 | STT | kotoba-whisper | `pip install -e ".[stt-local]"`（初回はモデルを自動取得） |
 | LLM | Claude | `pip install -e ".[llm]"` + `ANTHROPIC_API_KEY` |
@@ -57,12 +57,15 @@ Windows では portaudio の別途導入は要らない（sounddevice の wheel 
 ```bash
 jarvis devices                          # 使うマイクを選ぶ
 jarvis level                            # VAD のしきい値を実測する（部屋ごとに違う）
+jarvis wake-test                        # ウェイクワードのしきい値を実測する
 jarvis say "テストです"                  # TTS だけ試す
 jarvis transcribe sample.wav            # STT だけ試す
 jarvis listen                           # 常時待受を開始
 ```
 
 `jarvis level` は8秒ほどマイクを聞いて、暗騒音と発話の実測値から `vad.options.threshold` の値を提案する。既定値のまま使うと、静かすぎる部屋では声を取りこぼし、うるさい部屋では常に喋っていると判定される。
+
+`jarvis wake-test` はウェイクワードについて同じことをする。確信度を実測で見ながら `wake.options.threshold` を決める。呼んでも起きない、物音で勝手に起きる、のどちらもここで潰せる。
 
 うまく動かないときは、まず一番手前の段から潰す。
 
@@ -124,7 +127,7 @@ MCP の Python SDK は asyncio 前提だが、パイプライン本体は同期�
 
 ```bash
 pip install -e ".[dev,mcp]"
-pytest                                  # 159件。ネットワークもマイクも使わない
+pytest                                  # 174件。ネットワークもマイクも使わない
 ```
 
 テストはハードウェアに依存しない。パイプラインは偽のフレーム列を流し込んで検証し、LLM は SDK を差し替えて「ツールを実行して結果を正しい形で返すか」を見ている。MCP ブリッジだけは実際に子プロセスの MCP サーバを起動して確かめている（`tests/mcp_echo_server.py`）。
