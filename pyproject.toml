@@ -30,7 +30,14 @@ openai = ["openai>=1.30"]
 # --- MCPツール連携 ---
 mcp = ["mcp>=1.2"]
 # --- Google Meet 参加（PoC）。Chromium は `playwright install chromium` で別途入れる ---
-meet = ["playwright>=1.47", "sounddevice>=0.4.6", "numpy>=1.24"]
+# pyaudiowpatch は WASAPI loopback (スピーカー出力をキャプチャする) に使う。
+# sounddevice 側はこの機能を 0.5.6 時点でまだ露出していない。Windows 限定。
+meet = [
+    "playwright>=1.47",
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+    "PyAudioWPatch>=0.2.12",
+]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

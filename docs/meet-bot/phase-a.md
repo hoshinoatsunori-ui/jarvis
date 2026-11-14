@@ -1,109 +1,152 @@
 # Phase A: Meet 参加 bot の疎通確認
 
-Phase A は「音と Chromium が通る経路を物理的に敷く」ことだけを目的にする。
+Phase A は「音と Chrome が通る経路を物理的に敷く」ことだけを目的にする。
 LLM/STT/TTS パイプラインには触らない。ここが通らなければ以降の計画は全部無効。
 
 ## 方針
 
-- **参加方式**: ブラウザ自動化（Playwright + Chromium）
+- **参加方式**: ブラウザは手で開く (後述の理由で Playwright 自動化は保留)
 - **ホスト**: Windows
-- **音声経路は 2 本の仮想ケーブルで分離**。1 本だと TTS がそのまま自分の STT に戻ってループする
+- **下り**: WASAPI loopback でシステム既定スピーカーの出力を直接捕捉
+- **上り**: VB-Audio Virtual Cable 1 本を挟んで Meet のマイクに書き込み
 
 ```
 下り (Meet → jarvis):
-    Chromium のスピーカー出力 ─→ CABLE Input  (VB-Audio Virtual Cable)
-    jarvis が                    CABLE Output (VB-Audio Virtual Cable) から読む
+    Chrome のスピーカー = 物理スピーカー (Realtek など、システムの既定)
+    jarvis が WASAPI loopback でそのスピーカー出力をキャプチャ
 
 上り (jarvis → Meet):
-    jarvis TTS が                Speakers     (VB-Audio Point) に書く
-    Chromium のマイクに          CABLE Output (VB-Audio Point) を選ばせる
+    jarvis TTS が CABLE Input (VB-Audio Virtual Cable) に書き込む
+    Chrome の Meet マイクに CABLE Output (VB-Audio Virtual Cable) を選ばせる
 ```
+
+当初は仮想ケーブル 2 本で分離する案だったが、2 本目に想定した VB-Audio Point が
+portaudio の WDM-KS 対応で開けず (下記の [失敗記録](#失敗記録) 参照)、
+loopback 方式に切り替えた経緯がある。
+結果として **必要な外部依存が 1 ケーブルだけ** になり、他 PC でも再現しやすくなった。
 
 ## 依存の入れ方
 
 ```bash
-# jarvis 本体 + Playwright
 pip install -e ".[meet,llm,audio]"
-playwright install chromium
+playwright install chrome   # Chrome 自動化は Phase B で使う
 ```
 
 Windows 側は以下を一度だけ:
 
-1. [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) を入れる
-2. [VB-Audio Point](https://vb-audio.com/Point/) を入れる（2 本目のケーブルが要る）
-3. 再起動
+1. [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) を入れる (無料)
+2. 再起動
 
 ## 疎通確認の順序
 
 ```bash
-jarvis meet-probe devices                    # 1. 仮想ケーブルが見えているか
-jarvis meet-probe record --seconds 3         # 2. 下りから録音できるか
-jarvis meet-probe tone --seconds 1           # 3. 上りに音を流せるか
-jarvis meet-probe open https://meet.google.com/xxx-yyyy-zzz
-                                              # 4. Chromium が Meet ページに遷移できるか
+jarvis meet-probe devices                   # 1. loopback とケーブルが解決できるか
+jarvis meet-probe record --seconds 5        # 2. 下りを録音
+jarvis meet-probe play PATH                 # 3. 上りに WAV を流す
+jarvis meet-probe tone                      # (単純な正弦波は NS に消される)
+jarvis meet-probe open URL                  # 4. Chrome で Meet URL を開く (Phase B で使う)
 ```
 
 ### 1. `meet-probe devices`
 
 ```
-下り (Meet→jarvis): #10 CABLE Output (VB-Audio Virtual Cable)
-上り (jarvis→Meet): #31 Speakers (VB-Audio Point)
+下り (Meet→jarvis): WASAPI loopback #22 スピーカー (Realtek High Definition Audio) [Loopback]
+上り (jarvis→Meet): VB-Cable #15 CABLE Input (VB-Audio Virtual Cable)
 
-Chromium 側の設定（Meet のミーティング設定で 1 度だけ選ぶ）:
-  スピーカー: CABLE Input (VB-Audio Virtual Cable)
-  マイク    : CABLE Output (VB-Audio Point)
+Chrome 側の設定（Meet のミーティング設定で 1 度だけ選ぶ）:
+  スピーカー: スピーカー (Realtek High Definition Audio)
+             (既定のまま。ユーザーが聴きたいならヘッドホンを挿す)
+  マイク    : CABLE Output (VB-Audio Virtual Cable)
 ```
 
-デバイス番号は PC ごとに違う。番号を直接触るのは避け、名前ベースで解決している。
+デバイス番号は PC ごと・起動ごとに違う。番号を直接触るのは避け、名前ベースで解決している。
 
 ### 2. `meet-probe record`
 
-下りの仮想ケーブルから WAV を書き出す。Meet 側で誰かが喋った音をファイルに
-落とせれば Phase A の 半分は終わり。
+既定スピーカーの出力を WASAPI loopback で N 秒ぶん拾って WAV にする。
+Meet で相手が喋っている最中にこれを回せば、相手の声が入った WAV が取れる。
 
-### 3. `meet-probe tone`
+内部では pyaudiowpatch の `paWinWasapiLoopback` 機能を使っている。
+sounddevice は 0.5.6 時点でこれを露出していない。
 
-440Hz を 1.5 秒、上りに流す。相手端末の Meet 側で聞こえれば配線成立。
-TTS を使わない分、音声合成の失敗と経路の失敗を切り分けられる。
+### 3. `meet-probe play`
 
-### 4. `meet-probe open`
+WAV を上り (CABLE Input) に流す。Chrome の Meet マイクに CABLE Output を
+選ばせておけば、相手端末の参加者に聞こえる。
 
-Chromium を永続プロファイルで起動し、Meet URL に遷移する。初回に手で:
+### 4. `meet-probe tone`
 
-- Google にログイン
-- Meet の設定からスピーカー/マイクを VB-Cable に（上の表のとおり）
-- 「参加をリクエスト」
-
-を済ませておくと、プロファイルに保存されて以降は自動で乗る。
+440Hz を流すコマンド。**音声としては通るが、Meet のノイズサプレッションが
+ピュアな正弦波をほぼ確実に消す**ので、疎通確認用途ではあまり当てにならない。
+音声疎通の最終確認は `play` で実音声を流すこと。
 
 ## 実機で分かったこと (2026-11-14)
 
-### 片道は問題なく通る
+### 完全に疎通した
 
-- `meet-probe devices`: VB-Cable と VB-Audio Point の両方が正しく解決された
-- `meet-probe record --seconds 2`: 64000 バイトの PCM を取得、WAV 保存成功
-- `meet-probe tone --seconds 1`: 上り (device=31) に 440Hz を流せた
-- Chromium 永続プロファイル起動も成功
+- 下り: Realtek スピーカーからの loopback を peak 73% / RMS 0.055 で捕捉できた
+- 上り: TTS で合成した日本語音声を Meet 参加者に届けられた
 
-### 録音・再生の同時実行で portaudio がクラッシュする
+### ブラウザ自動化は Phase B で持ち越し
 
-当初は「TTS を上りに流しながら下りで録音する」ループバックテストを入れていたが、
-Windows + MME + VB-Audio の組み合わせで exit code `0xC0000005`
-（STATUS_ACCESS_VIOLATION）が出た。再生単独・録音単独は問題ない。
+当初 Playwright で Chrome を起動して Meet URL に遷移させる形にしていたが、
+Google 側の bot 検知が強く、ログインが通らなかった。試した緩和策:
 
-Phase B で VoiceLoop を Meet 向けに差し替えるときは、**入出力の host API を揃える**
-（できれば WASAPI、無理なら MME 側に統一）か、**sounddevice ではなく pyaudiowpatch
-など WASAPI loopback に強いバインディングに切り替える**ことを検討する必要がある。
-Phase A の段階では「並行動作が未検証」として先送りする。
+- Chromium 同梱 → 本物の Chrome (`channel="chrome"`) に変更 → 効かず
+- `--no-sandbox` を除去 (Playwright の既定フラグ) → 警告バナーは消えたが NG
+- `--use-fake-ui-for-media-stream` を除去 → バナー 1 個減っただけ
+- accounts.google.com を先に開いてからログイン → ログインフォームに到達せず
 
-### Chromium のデバイス選択は自動化しない
+Phase A の目的は音声経路なので、ここで止めて**普段使いの Chrome を手で開く運用**
+にした。bot 的な常駐を Phase B で実現するなら:
 
-Playwright から Meet のサウンド設定を触るのは可能だが、Meet の UI 変更に弱く、
-初回だけ手で設定して永続プロファイルに保存する運用で十分。
+- `--remote-debugging-port=9222` で Chrome を手で起動 → Playwright が CDP 接続
+- あるいは Google Meet Media API に移る (Workspace 契約が要る)
+
+### 2 本目の仮想ケーブル (VB-Audio Point) は portaudio で開けなかった {#失敗記録}
+
+当初プラン: 下りと上りで別々の仮想ケーブルを使う (エコーループ回避のため)。
+しかし、ユーザー環境にすでに入っていた VB-Audio Point は **WDM-KS でしか露出しておらず**
+(MME/DirectSound/WASAPI のどれにも出てこない)、portaudio から開こうとすると:
+
+- Blocking API (`sd.play()`): `"Blocking API not supported yet" [Windows WDM-KS error -9999]`
+- Callback API (`sd.OutputStream`): `Invalid device [PaErrorCode -9996]`
+
+で失敗する。portaudio の WDM-KS backend は blocking API を実装しておらず、
+callback API も Meet 側がケーブルの反対端を掴んでいると排他で開けない。
+
+これを機に方針転換:
+
+| 当初 | 変更後 |
+|---|---|
+| 仮想ケーブル 2 本 | 仮想ケーブル 1 本 + WASAPI loopback |
+| VB-Cable + VB-Audio Point が前提 | VB-Cable 1 本だけが前提 |
+| `sounddevice` だけで完結 | 下りだけ `pyaudiowpatch` を使う |
+
+変更後は他 PC への再現性が増した (WASAPI loopback はドライバ非依存で動く)。
+
+### 録音と再生の同時実行は portaudio で不安定
+
+sounddevice で異なる host API のデバイスを同時に扱うと、
+`STATUS_ACCESS_VIOLATION` (`0xC0000005`) で落ちることがある。
+特に MME + VB-Audio の組み合わせで出た。Phase B で VoiceLoop の継続録音と
+TTS 再生を並行させる際は、**全部 pyaudiowpatch に寄せる** か、
+sounddevice 側も host API を揃えて開く工夫が要る。
+
+### ピュアな正弦波は Meet のノイズサプレッションに殺される
+
+`meet-probe tone` で 440Hz を送っても相手には何も聞こえなかった。
+同じ経路で TTS 音声 (`meet-probe play`) を送ったら問題なく届いた。
+Meet の NS は「音声らしくない定常信号」を積極的に除去する設計。
+疎通確認は音声系の信号で行うのが確実。
 
 ## 残課題 (Phase B への申し送り)
 
-1. **並行 I/O の安定化**: 上りに TTS を流しながら下りで STT の継続録音ができる形にする
-2. **自己音声のループ回避**: TTS 発話中は STT をミュートする仕組みを `Conversation` に追加
-3. **ウェイクワード**: 「ジャービス」を STT 結果の文字列マッチで検出する `NameInTranscript` 実装
-4. **VoiceLoop の仮想デバイス対応**: `Microphone` / `play_wav` に `device` パラメータを通す
+1. **ブラウザ自動化の方式確定**: CDP 接続 or Meet Media API or 手動運用の継続
+2. **並行 I/O の安定化**: 上りに TTS を流しながら下りで STT の継続録音ができる形に。
+   全部 pyaudiowpatch に寄せる案が有力
+3. **自己音声のループ回避**: Meet 自身は自分の声をエコーバックしないので、
+   loopback で拾った音には自分の TTS は乗らない (はず)。Phase B で実測確認
+4. **ウェイクワード**: 「ジャービス」を STT 結果の文字列マッチで検出する
+   `NameInTranscript` 実装
+5. **VoiceLoop の loopback 対応**: `Microphone` を `iter_pcm_frames` 相当に差し替える

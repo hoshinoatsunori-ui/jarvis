@@ -1,14 +1,21 @@
-"""Google Meet と jarvis を仮想音声デバイスでつなぐブリッジ (Phase A)。
+"""Google Meet と jarvis を音声でつなぐブリッジ (Phase A)。
 
 jarvis の既存パイプラインは単一のマイクとスピーカーを前提にしているが、
 Meet への bot 参加では「音の経路」を 2 本に分けないとエコーループが起きる。
+二つの方向で違う仕組みを使う:
 
-    [Meet 側の相手音声] ─→ 仮想ケーブル #A ─→ jarvis STT        (下り)
-    jarvis TTS         ─→ 仮想ケーブル #B ─→ [Meet 側のマイク]   (上り)
+    下り (Meet → jarvis):
+        Chrome は普段どおりシステムの既定スピーカーに音を出す。
+        jarvis は WASAPI の loopback 機能でそのスピーカー出力を直接拾う。
+        仮想ケーブルを挟まないので、VB-Audio の相性問題に左右されない。
 
-Windows では VB-Audio の Virtual Cable と Point の 2 系統が使える。
-Chromium のメディア設定で入出力デバイスを 1 度だけ指定し、
-ペルシステントプロファイルに保存して以後は自動で乗る。
+    上り (jarvis → Meet):
+        jarvis TTS を CABLE Input (VB-Audio Virtual Cable) に書き込む。
+        Chrome 側で Meet のマイクを CABLE Output (VB-Audio Virtual Cable) に
+        切り替えておく。仮想ケーブル 1 本で済む。
+
+当初は仮想ケーブル 2 本構成を試したが、2 本目として想定した VB-Audio Point が
+portaudio の WDM-KS 対応で開けず、loopback 方式に切り替えた経緯がある。
 
 Phase A の時点では接続の疎通確認が目的で、LLM パイプラインには繋がない。
 """
@@ -20,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-from .audio import SAMPLE_WIDTH, Audio
+from .audio import Audio
 from .errors import EngineUnavailable
 
 log = logging.getLogger("jarvis.meet")
@@ -28,21 +35,11 @@ log = logging.getLogger("jarvis.meet")
 
 # -- 音声デバイス解決 --------------------------------------------------------
 
-#: Meet 側の音声を bot が受け取る入口（jarvis から見ると入力デバイス）。
-#: VB-Cable の「CABLE Output」が該当する（名前が逆方向で紛らわしいが、
-#: アプリ側は「送出するアプリの出力の受け口」という意味で Output）。
-_DOWNLINK_CANDIDATES = (
-    "CABLE Output (VB-Audio Virtual Cable)",
-    "CABLE Output (VB-Audio Point)",
-    "CABLE Output",
-)
 
-#: bot が TTS を書き込む出口（jarvis から見ると出力デバイス）。
-#: 下りと同じケーブルを使うと TTS が自分で聞こえてループするので、
-#: 別のケーブルを選ぶ。
+#: bot が TTS を書き込む仮想ケーブル (jarvis から見ると出力デバイス)。
+#: Chrome 側で Meet のマイクに「CABLE Output (VB-Audio Virtual Cable)」を
+#: 選ばせておく。
 _UPLINK_CANDIDATES = (
-    "Speakers (VB-Audio Point)",
-    "CABLE Input (VB-Audio Point)",
     "CABLE Input (VB-Audio Virtual Cable)",
     "CABLE Input",
 )
@@ -50,39 +47,34 @@ _UPLINK_CANDIDATES = (
 
 @dataclass(frozen=True)
 class AudioRoute:
-    """仮想ケーブルの入出力ペア。"""
+    """下り (loopback) と上り (仮想ケーブル) のデバイスペア。"""
 
+    #: pyaudiowpatch の loopback デバイス番号 (スピーカー出力をキャプチャする)。
     downlink_input: int
+    #: sounddevice の出力デバイス番号 (TTS を仮想ケーブルに流し込む)。
     uplink_output: int
     downlink_name: str
     uplink_name: str
 
     def describe(self) -> str:
         return (
-            f"下り (Meet→jarvis): #{self.downlink_input} {self.downlink_name}\n"
-            f"上り (jarvis→Meet): #{self.uplink_output} {self.uplink_name}"
+            f"下り (Meet→jarvis): WASAPI loopback #{self.downlink_input} {self.downlink_name}\n"
+            f"上り (jarvis→Meet): VB-Cable #{self.uplink_output} {self.uplink_name}"
         )
 
-    def chromium_speaker_hint(self) -> str:
-        """Chromium 側のスピーカーに選ばせるべきデバイス名の目安。
+    def chrome_speaker_hint(self) -> str:
+        """Chrome 側のスピーカーに選ばせるべきデバイス。
 
-        jarvis が『CABLE Output』から読んでいるなら、Chromium は同じケーブルの
-        反対側『CABLE Input』に書き込まなければならない。
+        loopback 方式ではシステムの既定スピーカーをそのまま使う。bot 向けの
+        仮想ケーブルを挟む必要がない。ユーザーが Meet 音声を聴きたいなら
+        ヘッドホンやイヤホンを挿せばよい (physical mic への回り込みを避ける)。
         """
-        if "VB-Audio Virtual Cable" in self.downlink_name:
-            return "CABLE Input (VB-Audio Virtual Cable)"
-        if "VB-Audio Point" in self.downlink_name:
-            return "CABLE Input (VB-Audio Point)"
-        return "下り用ケーブルの反対側 (Input 側)"
+        # pyaudiowpatch は loopback 面を "[Loopback]" 付きで返す。
+        # Meet の UI 上では Loopback 付きの名前は見えないので剥がす。
+        return self.downlink_name.replace(" [Loopback]", "").strip()
 
-    def chromium_mic_hint(self) -> str:
-        """Chromium 側のマイクに選ばせるべきデバイス名の目安。
-
-        jarvis が『Speakers (VB-Audio Point)』に書き込んでいるなら、Chromium は
-        同じケーブルの反対側『CABLE Output (VB-Audio Point)』から読む。
-        """
-        if "VB-Audio Point" in self.uplink_name:
-            return "CABLE Output (VB-Audio Point)"
+    def chrome_mic_hint(self) -> str:
+        """Chrome 側のマイクに選ばせるべきデバイス名の目安。"""
         if "VB-Audio Virtual Cable" in self.uplink_name:
             return "CABLE Output (VB-Audio Virtual Cable)"
         return "上り用ケーブルの反対側 (Output 側)"
@@ -95,9 +87,21 @@ def _import_sounddevice():
         raise EngineUnavailable(
             "meet",
             f"sounddevice を読み込めない ({exc})",
-            'pip install "jarvis[meet]"（Chromium は playwright install chromium）',
+            'pip install "jarvis[meet]"（Chrome は playwright install chrome）',
         ) from exc
     return sounddevice
+
+
+def _import_pyaudiowpatch():
+    try:
+        import pyaudiowpatch  # noqa: PLC0415
+    except Exception as exc:
+        raise EngineUnavailable(
+            "meet",
+            f"pyaudiowpatch を読み込めない ({exc})",
+            'pip install "jarvis[meet]" (Windows 限定)',
+        ) from exc
+    return pyaudiowpatch
 
 
 def _pick_device(
@@ -122,44 +126,43 @@ def _pick_device(
 
 
 def resolve_route() -> AudioRoute:
-    """既定の仮想ケーブル 2 本を自動検出する。
-
-    見つからない段や、同じケーブルを両向きに使おうとしている場合は
-    EngineUnavailable を投げ、何を入れれば足りるかを指示する。
-    """
+    """既定スピーカー (loopback) と仮想ケーブル (上り) を自動検出する。"""
     sd = _import_sounddevice()
-    devices = list(sd.query_devices())
-    downlink = _pick_device(devices, _DOWNLINK_CANDIDATES, want_input=True)
-    uplink = _pick_device(devices, _UPLINK_CANDIDATES, want_input=False)
-    if downlink is None:
+    pya = _import_pyaudiowpatch()
+
+    # 下り: WASAPI の既定再生デバイスを loopback モードで開ける番号を取る。
+    p = pya.PyAudio()
+    try:
+        loopback_info = p.get_default_wasapi_loopback()
+    except Exception as exc:
+        p.terminate()
         raise EngineUnavailable(
             "meet",
-            "下り用の仮想ケーブル (CABLE Output) が見つからない",
-            "VB-Audio Virtual Cable をインストールする: https://vb-audio.com/Cable/",
-        )
+            f"WASAPI loopback デバイスが見つからない ({exc})",
+            "Windows の『サウンド』で既定の再生デバイスを一つ確定させる",
+        ) from exc
+    else:
+        p.terminate()
+
+    # 上り: 仮想ケーブル (CABLE Input) を sounddevice 側で見つける。
+    devices = list(sd.query_devices())
+    uplink = _pick_device(devices, _UPLINK_CANDIDATES, want_input=False)
     if uplink is None:
         raise EngineUnavailable(
             "meet",
-            "上り用の仮想ケーブル (CABLE Input / VB-Audio Point) が見つからない",
-            "VB-Audio Virtual Cable と VB-Audio Point の両方を入れる（2 本必要）",
+            "上り用の仮想ケーブル (CABLE Input) が見つからない",
+            "VB-Audio Virtual Cable をインストールする: https://vb-audio.com/Cable/",
         )
-    # 同じデバイスを両向きに使うことは原理的にできないが、名前が似たデバイスを
-    # 誤認しているケースを弾くためにガードしておく。
-    if downlink[1].split(" (")[0] == uplink[1].split(" (")[0]:
-        raise EngineUnavailable(
-            "meet",
-            f"下りと上りに同じケーブルを割り当てようとしている ({downlink[1]})",
-            "2 本目の仮想ケーブル（VB-Audio Point など）を入れる",
-        )
+
     return AudioRoute(
-        downlink_input=downlink[0],
+        downlink_input=loopback_info["index"],
         uplink_output=uplink[0],
-        downlink_name=downlink[1],
+        downlink_name=loopback_info["name"],
         uplink_name=uplink[1],
     )
 
 
-# -- デバイス指定の録音・再生 ------------------------------------------------
+# -- 録音・再生 --------------------------------------------------------------
 
 
 def record_to_wav(
@@ -168,23 +171,59 @@ def record_to_wav(
     sample_rate: int = 16000,
     channels: int = 1,
 ) -> Audio:
-    """指定デバイスから一定秒数だけ録音して Audio を返す。
+    """WASAPI loopback でスピーカー出力を録る。
 
-    疎通確認のための単発録音。Phase B 以降は VoiceLoop から継続録音に差し替える。
+    pyaudiowpatch 経由で開く。デバイスのネイティブ設定 (48kHz ステレオが普通)
+    で録ったあと、jarvis の既定 (16kHz モノラル int16) に揃えて返す。
     """
-    sd = _import_sounddevice()
+    del channels  # loopback は常にデバイスのネイティブチャネル数を使う
+    pya = _import_pyaudiowpatch()
     import numpy as np  # noqa: PLC0415
 
-    frames = int(seconds * sample_rate)
-    log.info("録音開始: device=%d, %.1fs @ %dHz, ch=%d", device, seconds, sample_rate, channels)
-    buf = sd.rec(frames, samplerate=sample_rate, channels=channels, dtype="int16", device=device)
-    sd.wait()
-    if channels == 1:
-        pcm = buf.tobytes()
-    else:
-        # モノラルに畳む（Whisper は 1ch 前提）。
-        mono = buf.astype("int32").mean(axis=1).astype("int16")
-        pcm = mono.tobytes()
+    p = pya.PyAudio()
+    try:
+        info = p.get_device_info_by_index(device)
+        native_sr = int(info["defaultSampleRate"])
+        native_ch = int(info["maxInputChannels"])
+        chunk = 1024
+        total_frames = int(seconds * native_sr)
+        log.info(
+            "loopback 録音開始: device=%d (%s), %.1fs @ %dHz %dch → %dHz 1ch",
+            device, info["name"], seconds, native_sr, native_ch, sample_rate,
+        )
+        stream = p.open(
+            format=pya.paFloat32,
+            channels=native_ch,
+            rate=native_sr,
+            frames_per_buffer=chunk,
+            input=True,
+            input_device_index=device,
+        )
+        try:
+            buf = bytearray()
+            read = 0
+            while read < total_frames:
+                data = stream.read(chunk, exception_on_overflow=False)
+                buf.extend(data)
+                read += chunk
+        finally:
+            stream.stop_stream()
+            stream.close()
+    finally:
+        p.terminate()
+
+    samples = np.frombuffer(bytes(buf), dtype=np.float32)
+    if native_ch > 1:
+        samples = samples.reshape(-1, native_ch).mean(axis=1)
+    # 線形補間でダウンサンプル。音質は多少落ちるが、Whisper の前段としては十分。
+    if native_sr != sample_rate:
+        new_len = int(len(samples) * sample_rate / native_sr)
+        samples = np.interp(
+            np.linspace(0, len(samples) - 1, new_len),
+            np.arange(len(samples)),
+            samples,
+        )
+    pcm = (samples * 32767).clip(-32768, 32767).astype("int16").tobytes()
     log.info("録音完了: %d バイト", len(pcm))
     return Audio(pcm=pcm, sample_rate=sample_rate)
 
@@ -205,29 +244,41 @@ def play_wav_to(data: bytes, device: int) -> None:
     sd.wait()
 
 
-# -- Chromium 側 (Playwright) ------------------------------------------------
+# -- Chrome 側 (Playwright) -------------------------------------------------
 
 
 # bot の挙動が目立つ最小限のフラグだけ付ける。
-# - use-fake-ui-for-media-stream: マイク/カメラの許可ダイアログを自動承認
 # - disable-features=WebRtcHideLocalIpsWithMdns: Meet での接続安定性向上
-# "--mute-audio" は入れない (スピーカーを仮想ケーブルに向けた上で鳴らしたいので)
-_CHROMIUM_ARGS = (
-    "--use-fake-ui-for-media-stream",
+# "--use-fake-ui-for-media-stream" は入れない: Chrome が「サポートされていない
+#   コマンドライン フラグ」と警告バナーを出し、Google 側の bot 検知にも使われる。
+#   マイク/カメラの許可は初回だけ手で承認して、永続プロファイルに保存する。
+# "--mute-audio" は入れない: Meet 音声をスピーカーに出させて loopback で拾う。
+_CHROME_ARGS = (
     "--disable-features=WebRtcHideLocalIpsWithMdns",
 )
 
 
 class MeetBrowser:
-    """Chromium を永続プロファイルで起動し、Meet URL を開く。
+    """ブラウザを永続プロファイルで起動し、Meet URL を開く。
 
-    初回は手でログインと、Meet の設定からマイク/スピーカーに VB-Cable を
-    選んでおくこと。選択はプロファイルに保存され、以後は自動で乗る。
+    既定で Google Chrome Stable (`channel="chrome"`) を使う。Playwright 同梱の
+    Chromium は Google の bot 検知に「安全でないブラウザ」と判定されて
+    ログインが通らないため、本物の Chrome を選ぶ。`playwright install chrome`
+    で入る。
+
+    初回は手でログインと、Meet のマイク設定の切り替えを済ませておくこと。
+    選択はプロファイルに保存され、以後は自動で乗る。
     """
 
-    def __init__(self, user_data_dir: str | Path, headless: bool = False) -> None:
+    def __init__(
+        self,
+        user_data_dir: str | Path,
+        headless: bool = False,
+        channel: str = "chrome",
+    ) -> None:
         self.user_data_dir = Path(user_data_dir)
         self.headless = headless
+        self.channel = channel
         self._pw = None
         self._ctx = None
 
@@ -238,18 +289,21 @@ class MeetBrowser:
             raise EngineUnavailable(
                 "meet",
                 "playwright が入っていない",
-                'pip install "jarvis[meet]" のあと、`playwright install chromium`',
+                'pip install "jarvis[meet]" のあと、`playwright install chrome`',
             ) from exc
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         self._pw = sync_playwright().start()
         try:
             self._ctx = self._pw.chromium.launch_persistent_context(
                 str(self.user_data_dir),
+                channel=self.channel,
                 headless=self.headless,
-                args=list(_CHROMIUM_ARGS),
+                args=list(_CHROME_ARGS),
                 # "自動化で起動されたブラウザ" 感を薄める。Google の検知を
                 # 完全には回避できないが、入室テストの範囲では十分。
-                ignore_default_args=["--enable-automation"],
+                # --no-sandbox は Playwright が既定で付けるが、Chrome が
+                # 警告バナーを出して Google 側にも bot と判定される要因になる。
+                ignore_default_args=["--enable-automation", "--no-sandbox"],
             )
         except Exception:
             self._pw.stop()
@@ -262,7 +316,7 @@ class MeetBrowser:
             try:
                 self._ctx.close()
             except Exception as err:
-                log.warning("Chromium コンテキストを閉じる際にエラー: %s", err)
+                log.warning("Chrome コンテキストを閉じる際にエラー: %s", err)
             self._ctx = None
         if self._pw is not None:
             self._pw.stop()
@@ -273,7 +327,16 @@ class MeetBrowser:
         if self._ctx is None:
             raise RuntimeError("MeetBrowser は with 文の中で使うこと")
         page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
-        log.info("Chromium で URL を開く: %s", url)
+        log.info("Chrome で URL を開く: %s", url)
+        page.goto(url, wait_until="domcontentloaded")
+        return page
+
+    def open_new_tab(self, url: str):
+        """新しいタブで URL を開き、Page オブジェクトを返す。"""
+        if self._ctx is None:
+            raise RuntimeError("MeetBrowser は with 文の中で使うこと")
+        page = self._ctx.new_page()
+        log.info("Chrome で新タブを開く: %s", url)
         page.goto(url, wait_until="domcontentloaded")
         return page
 
@@ -293,25 +356,44 @@ def iter_pcm_frames(
     frame_ms: int = 30,
     sample_rate: int = 16000,
 ) -> Iterator[bytes]:
-    """指定デバイスからフレーム単位の PCM をストリーム出力する (Phase B 以降で使う)。
+    """loopback デバイスからフレーム単位の PCM をストリーム出力する (Phase B 以降で使う)。
 
-    `Microphone.frames()` と同じインタフェースを仮想ケーブル向けに揃えるためのもの。
+    `Microphone.frames()` と同じインタフェースを揃えるためのもの。
     """
-    sd = _import_sounddevice()
-    frame_samples = int(sample_rate * frame_ms / 1000)
-    stream = sd.RawInputStream(
-        samplerate=sample_rate,
-        blocksize=frame_samples,
-        device=device,
-        dtype="int16",
-        channels=1,
-    )
-    stream.start()
+    pya = _import_pyaudiowpatch()
+    import numpy as np  # noqa: PLC0415
+
+    p = pya.PyAudio()
     try:
-        while True:
-            data, overflowed = stream.read(frame_samples)
-            del overflowed
-            yield bytes(data)
+        info = p.get_device_info_by_index(device)
+        native_sr = int(info["defaultSampleRate"])
+        native_ch = int(info["maxInputChannels"])
+        # jarvis 側のフレーム長に合わせるため、native サンプル数で読む。
+        native_frame_samples = int(native_sr * frame_ms / 1000)
+        stream = p.open(
+            format=pya.paFloat32,
+            channels=native_ch,
+            rate=native_sr,
+            frames_per_buffer=native_frame_samples,
+            input=True,
+            input_device_index=device,
+        )
+        try:
+            while True:
+                data = stream.read(native_frame_samples, exception_on_overflow=False)
+                samples = np.frombuffer(data, dtype=np.float32)
+                if native_ch > 1:
+                    samples = samples.reshape(-1, native_ch).mean(axis=1)
+                if native_sr != sample_rate:
+                    new_len = int(len(samples) * sample_rate / native_sr)
+                    samples = np.interp(
+                        np.linspace(0, len(samples) - 1, new_len),
+                        np.arange(len(samples)),
+                        samples,
+                    )
+                yield (samples * 32767).clip(-32768, 32767).astype("int16").tobytes()
+        finally:
+            stream.stop_stream()
+            stream.close()
     finally:
-        stream.stop()
-        stream.close()
+        p.terminate()
