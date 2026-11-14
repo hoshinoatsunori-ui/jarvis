@@ -144,7 +144,43 @@ def _build_parser() -> argparse.ArgumentParser:
     tools = sub.add_parser("tools", help="LLM に渡されるツールを一覧する")
     tools.set_defaults(handler=cmd_tools)
 
-    for subparser in (doctor, chat, listen, say, transcribe, devices, level, tools):
+    meet_probe = sub.add_parser(
+        "meet-probe",
+        help="Google Meet 参加 (Phase A) の疎通確認: 仮想音声デバイス + Chromium",
+    )
+    meet_probe_actions = meet_probe.add_subparsers(dest="meet_action", required=True)
+
+    mp_devices = meet_probe_actions.add_parser("devices", help="下り/上りに使う仮想ケーブルを表示する")
+    mp_devices.set_defaults(handler=cmd_meet_devices)
+
+    mp_record = meet_probe_actions.add_parser("record", help="下りから録音して WAV に書き出す")
+    mp_record.add_argument("--seconds", type=float, default=5.0, help="録音時間")
+    mp_record.add_argument("--out", default="meet-downlink.wav", help="出力ファイル")
+    mp_record.set_defaults(handler=cmd_meet_record)
+
+    mp_play = meet_probe_actions.add_parser("play", help="WAV を上りに流す (Meet 側で聞こえるか確認)")
+    mp_play.add_argument("path", help="WAV ファイル")
+    mp_play.set_defaults(handler=cmd_meet_play)
+
+    mp_tone = meet_probe_actions.add_parser(
+        "tone",
+        help="単発の正弦波を上りに流す (Meet 相手側で聞こえるかの確認用)",
+    )
+    mp_tone.add_argument("--hz", type=float, default=440.0, help="周波数")
+    mp_tone.add_argument("--seconds", type=float, default=1.5, help="時間")
+    mp_tone.set_defaults(handler=cmd_meet_tone)
+
+    mp_open = meet_probe_actions.add_parser("open", help="Chromium で Meet URL を開く")
+    mp_open.add_argument("url", help="Meet の URL")
+    mp_open.add_argument(
+        "--profile",
+        default="state/meet-profile",
+        help="Chromium のプロファイル保存先。初回ログインとデバイス選択が残る",
+    )
+    mp_open.add_argument("--headless", action="store_true", help="非表示で起動 (PoC では非推奨)")
+    mp_open.set_defaults(handler=cmd_meet_open)
+
+    for subparser in (doctor, chat, listen, say, transcribe, devices, level, tools, meet_probe):
         _add_global_options(subparser, after_command=True)
 
     return parser
@@ -388,4 +424,98 @@ def cmd_tools(args: argparse.Namespace, config: Config) -> int:
         return 0
     for spec in registry.to_anthropic():
         print(f"- {spec['name']}: {spec['description'].splitlines()[0]}")
+    return 0
+
+
+# -- Meet 参加の疎通確認 (Phase A) ------------------------------------------
+
+
+def cmd_meet_devices(args: argparse.Namespace, config: Config) -> int:
+    del args, config
+    from . import meet_bridge
+
+    route = meet_bridge.resolve_route()
+    print(route.describe())
+    print()
+    print("Chromium 側の設定（Meet のミーティング設定で 1 度だけ選ぶ）:")
+    print(f"  スピーカー: {route.chromium_speaker_hint()}")
+    print(f"  マイク    : {route.chromium_mic_hint()}")
+    return 0
+
+
+def cmd_meet_record(args: argparse.Namespace, config: Config) -> int:
+    from . import meet_bridge
+
+    route = meet_bridge.resolve_route()
+    sample_rate = config.audio.sample_rate
+    audio = meet_bridge.record_to_wav(route.downlink_input, args.seconds, sample_rate=sample_rate)
+    out = Path(args.out)
+    out.write_bytes(audio.to_wav_bytes())
+    print(f"{audio.duration_s:.1f} 秒を {out} に保存した (device={route.downlink_input})。")
+    return 0
+
+
+def cmd_meet_play(args: argparse.Namespace, config: Config) -> int:
+    del config
+    from . import meet_bridge
+
+    route = meet_bridge.resolve_route()
+    data = Path(args.path).read_bytes()
+    meet_bridge.play_wav_to(data, route.uplink_output)
+    print(f"{args.path} を上り (device={route.uplink_output}) に流した。")
+    return 0
+
+
+def cmd_meet_tone(args: argparse.Namespace, config: Config) -> int:
+    """上りに単発の正弦波を流す。Meet 相手側で聞こえていれば配線成立。"""
+    del config
+    import io
+    import math
+    import wave
+
+    from . import meet_bridge
+
+    route = meet_bridge.resolve_route()
+    sample_rate = 48000
+    samples = int(args.seconds * sample_rate)
+    # 16bit で ±3000 程度にして突き抜けを避ける（相手側のマイクブースト次第で破綻するため）。
+    amplitude = 3000
+    pcm = bytearray()
+    for i in range(samples):
+        value = int(amplitude * math.sin(2 * math.pi * args.hz * i / sample_rate))
+        pcm += int(value).to_bytes(2, "little", signed=True)
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(bytes(pcm))
+
+    meet_bridge.play_wav_to(buf.getvalue(), route.uplink_output)
+    print(f"{args.hz:.0f}Hz を {args.seconds:.1f}s 流した (device={route.uplink_output})。")
+    return 0
+
+
+def cmd_meet_open(args: argparse.Namespace, config: Config) -> int:
+    del config
+    from . import meet_bridge
+
+    route = meet_bridge.resolve_route()
+    print(route.describe())
+    print()
+    print("Chromium を起動する。初回は以下を済ませてから、このウィンドウを開いたままにしておく:")
+    print("  1. Google にログイン")
+    print("  2. Meet の『その他のオプション → 設定』で")
+    print(f"     - スピーカーを {route.chromium_speaker_hint()} に")
+    print(f"     - マイクを {route.chromium_mic_hint()} に")
+    print("  3. 会議に『参加をリクエスト』")
+    print()
+    with meet_bridge.MeetBrowser(args.profile, headless=args.headless) as browser:
+        browser.open(args.url)
+        print("ウィンドウを閉じるまで待機します。Ctrl-C でも終了。")
+        try:
+            browser.wait_closed()
+        except KeyboardInterrupt:
+            print("\n終了します。")
     return 0

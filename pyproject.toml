@@ -29,6 +29,8 @@ vad-silero = ["onnxruntime>=1.16", "numpy>=1.24"]
 openai = ["openai>=1.30"]
 # --- MCPツール連携 ---
 mcp = ["mcp>=1.2"]
+# --- Google Meet 参加（PoC）。Chromium は `playwright install chromium` で別途入れる ---
+meet = ["playwright>=1.47", "sounddevice>=0.4.6", "numpy>=1.24"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
